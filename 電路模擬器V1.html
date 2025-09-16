@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>前端電路繪圖軟體 - 原型</title>
+    <style>
+        /* CSS 樣式 */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: #2e2e2e;
+        }
+
+        #app-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        #component-panel {
+            width: 180px;
+            background-color: #3c3c3c;
+            color: #f0f0f0;
+            padding: 10px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.5);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #component-panel h3 {
+            margin-top: 0;
+            text-align: center;
+            border-bottom: 1px solid #555;
+            padding-bottom: 10px;
+            width: 100%;
+        }
+        
+        .component-btn {
+            background-color: #555;
+            border: 1px solid #777;
+            color: white;
+            padding: 10px;
+            margin: 5px 0;
+            width: 90%;
+            cursor: pointer;
+            text-align: center;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .component-btn:hover {
+            background-color: #6a6a6a;
+        }
+        
+        .component-btn.active {
+            background-color: #007acc;
+            border-color: #009eff;
+        }
+
+        #canvas-container {
+            flex-grow: 1;
+            height: 100%;
+            position: relative;
+        }
+
+        #main-canvas {
+            width: 100%;
+            height: 100%;
+            cursor: default;
+        }
+
+        /* 元件的 SVG 樣式 */
+        .component {
+            stroke-width: 2;
+            stroke: #00e6e6;
+            fill: none;
+        }
+
+        .component-terminal {
+            fill: #00e6e6;
+        }
+        
+        .wire {
+            stroke: #ff9800;
+            stroke-width: 2;
+            fill: none;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <!-- 左側元件面板 -->
+        <div id="component-panel">
+            <h3>元件庫</h3>
+            <button class="component-btn" data-type="Resistor">電阻</button>
+            <button class="component-btn" data-type="Capacitor">電容</button>
+            <button class="component-btn" data-type="Inductor">電感</button>
+            <button class="component-btn" data-type="DC_Source">直流電源</button>
+            
+            <h3 style="margin-top: 20px;">工具</h3>
+            <button id="wire-tool-btn" class="component-btn">連線工具</button>
+        </div>
+
+        <!-- 右側 SVG 畫布容器 -->
+        <div id="canvas-container">
+            <svg id="main-canvas"></svg>
+        </div>
+    </div>
+
+    <script>
+        // JavaScript 邏輯
+        document.addEventListener('DOMContentLoaded', () => {
+            const svg = document.getElementById('main-canvas');
+            const svgNS = "http://www.w3.org/2000/svg";
+            const gridSize = 20;
+
+            // --- 應用程式狀態管理 ---
+            let state = {
+                mode: 'IDLE', // 'IDLE', 'PLACING', 'WIRING'
+                placingType: null,
+                isPanning: false,
+                panStart: { x: 0, y: 0 },
+                viewBox: { x: 0, y: 0, w: svg.clientWidth, h: svg.clientHeight },
+                wireStartPoint: null,
+            };
+
+            let ghostComponent = null;
+            let tempWire = null;
+
+            // --- 初始化 ---
+            function init() {
+                createGridPattern();
+                setupEventListeners();
+                updateViewBox();
+            }
+
+            // 建立網格點背景
+            function createGridPattern() {
+                const defs = document.createElementNS(svgNS, 'defs');
+                const pattern = document.createElementNS(svgNS, 'pattern');
+                pattern.setAttribute('id', 'grid');
+                pattern.setAttribute('width', gridSize);
+                pattern.setAttribute('height', gridSize);
+                pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+
+                const circle = document.createElementNS(svgNS, 'circle');
+                circle.setAttribute('cx', '1');
+                circle.setAttribute('cy', '1');
+                circle.setAttribute('r', '1');
+                circle.setAttribute('fill', '#555');
+
+                pattern.appendChild(circle);
+                defs.appendChild(pattern);
+                svg.appendChild(defs);
+
+                const gridRect = document.createElementNS(svgNS, 'rect');
+                gridRect.setAttribute('width', '100%');
+                gridRect.setAttribute('height', '100%');
+                gridRect.setAttribute('fill', 'url(#grid)');
+                svg.insertBefore(gridRect, svg.firstChild);
+            }
+
+            // --- 核心功能：繪製元件 ---
+            const componentSVG = {
+                Resistor: (x, y) => {
+                    const g = document.createElementNS(svgNS, 'g');
+                    g.setAttribute('transform', `translate(${x}, ${y})`);
+                    const line1 = document.createElementNS(svgNS, 'line');
+                    line1.setAttribute('x1', -gridSize*2); line1.setAttribute('y1', 0);
+                    line1.setAttribute('x2', -gridSize); line1.setAttribute('y2', 0);
+                    const rect = document.createElementNS(svgNS, 'rect');
+                    rect.setAttribute('x', -gridSize); rect.setAttribute('y', -gridSize/2);
+                    rect.setAttribute('width', gridSize*2); rect.setAttribute('height', gridSize);
+                    rect.setAttribute('stroke-width', 2);
+                    const line2 = document.createElementNS(svgNS, 'line');
+                    line2.setAttribute('x1', gridSize); line2.setAttribute('y1', 0);
+                    line2.setAttribute('x2', gridSize*2); line2.setAttribute('y2', 0);
+                    g.append(line1, rect, line2);
+                    return g;
+                },
+                Capacitor: (x, y) => {
+                    const g = document.createElementNS(svgNS, 'g');
+                    g.setAttribute('transform', `translate(${x}, ${y})`);
+                    g.innerHTML = `
+                        <line x1="${-gridSize*2}" y1="0" x2="${-gridSize/2}" y2="0"></line>
+                        <line x1="${-gridSize/2}" y1="${-gridSize}" x2="${-gridSize/2}" y2="${gridSize}"></line>
+                        <line x1="${gridSize/2}" y1="${-gridSize}" x2="${gridSize/2}" y2="${gridSize}"></line>
+                        <line x1="${gridSize/2}" y1="0" x2="${gridSize*2}" y2="0"></line>
+                    `;
+                    return g;
+                },
+                Inductor: (x, y) => {
+                     const g = document.createElementNS(svgNS, 'g');
+                    g.setAttribute('transform', `translate(${x}, ${y})`);
+                    g.innerHTML = `
+                        <line x1="${-gridSize*2}" y1="0" x2="${-gridSize*1.5}" y2="0"></line>
+                        <path d="M ${-gridSize*1.5} 0 C ${-gridSize*1.5} ${-gridSize}, ${-gridSize*0.5} ${-gridSize}, ${-gridSize*0.5} 0"></path>
+                        <path d="M ${-gridSize*0.5} 0 C ${-gridSize*0.5} ${-gridSize}, ${gridSize*0.5} ${-gridSize}, ${gridSize*0.5} 0"></path>
+                        <path d="M ${gridSize*0.5} 0 C ${gridSize*0.5} ${-gridSize}, ${gridSize*1.5} ${-gridSize}, ${gridSize*1.5} 0"></path>
+                        <line x1="${gridSize*1.5}" y1="0" x2="${gridSize*2}" y2="0"></line>
+                    `;
+                    return g;
+                },
+                DC_Source: (x, y) => {
+                    const g = document.createElementNS(svgNS, 'g');
+                    g.setAttribute('transform', `translate(${x}, ${y})`);
+                    g.innerHTML = `
+                        <line x1="${-gridSize*2}" y1="0" x2="${-gridSize}" y2="0"></line>
+                        <circle cx="0" cy="0" r="${gridSize}"></circle>
+                        <line x1="0" y1="${-gridSize/2}" x2="0" y2="${gridSize/2}"></line>
+                        <line x1="${-gridSize/2}" y1="0" x2="${gridSize/2}" y2="0"></line>
+                        <line x1="0" y1="${-gridSize*0.3}" x2="0" y2="${-gridSize*0.3}"></line> <!-- Polarity might be drawn here -->
+                        <line x1="${gridSize}" y1="0" x2="${gridSize*2}" y2="0"></line>
+                    `;
+                    return g;
+                }
+            };
+            
+            function createComponent(type, x, y, isGhost = false) {
+                if (!componentSVG[type]) return null;
+                const element = componentSVG[type](x, y);
+                element.classList.add('component');
+                if (isGhost) {
+                    element.style.opacity = '0.5';
+                    element.style.pointerEvents = 'none';
+                } else {
+                    // 加上端點，方便未來連線
+                    const terminal1 = document.createElementNS(svgNS, 'circle');
+                    terminal1.setAttribute('cx', x - gridSize*2); terminal1.setAttribute('cy', y);
+                    terminal1.setAttribute('r', 4); terminal1.classList.add('component-terminal');
+                    const terminal2 = document.createElementNS(svgNS, 'circle');
+                    terminal2.setAttribute('cx', x + gridSize*2); terminal2.setAttribute('cy', y);
+                    terminal2.setAttribute('r', 4); terminal2.classList.add('component-terminal');
+                    svg.appendChild(terminal1);
+                    svg.appendChild(terminal2);
+                }
+                return element;
+            }
+
+
+            // --- 事件監聽器設定 ---
+            function setupEventListeners() {
+                // 面板按鈕
+                document.querySelectorAll('.component-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const type = btn.dataset.type;
+                        if (type) {
+                           enterPlacingMode(type);
+                        }
+                    });
+                });
+                
+                document.getElementById('wire-tool-btn').addEventListener('click', enterWiringMode);
+
+                // SVG 畫布事件
+                svg.addEventListener('mousedown', onMouseDown);
+                svg.addEventListener('mousemove', onMouseMove);
+                svg.addEventListener('mouseup', onMouseUp);
+                svg.addEventListener('mouseleave', onMouseLeave);
+                svg.addEventListener('wheel', onWheel);
+                
+                // 按 ESC 鍵取消當前操作
+                window.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        cancelCurrentMode();
+                    }
+                });
+            }
+            
+            // --- 模式切換 ---
+            function resetMode() {
+                document.querySelectorAll('.component-btn.active').forEach(b => b.classList.remove('active'));
+                state.mode = 'IDLE';
+                state.placingType = null;
+                state.wireStartPoint = null;
+                
+                if (ghostComponent) {
+                    ghostComponent.remove();
+                    ghostComponent = null;
+                }
+                if (tempWire) {
+                    tempWire.remove();
+                    tempWire = null;
+                }
+                 svg.style.cursor = 'default';
+            }
+
+            function enterPlacingMode(type) {
+                resetMode();
+                state.mode = 'PLACING';
+                state.placingType = type;
+                document.querySelector(`.component-btn[data-type="${type}"]`).classList.add('active');
+                
+                ghostComponent = createComponent(type, 0, 0, true);
+                if (ghostComponent) {
+                    svg.appendChild(ghostComponent);
+                }
+                 svg.style.cursor = 'crosshair';
+            }
+            
+            function enterWiringMode() {
+                resetMode();
+                state.mode = 'WIRING';
+                 document.getElementById('wire-tool-btn').classList.add('active');
+                svg.style.cursor = 'crosshair';
+            }
+            
+            function cancelCurrentMode() {
+                resetMode();
+            }
+
+            // --- 滑鼠事件處理 ---
+            function onMouseDown(e) {
+                if (e.button === 1) { // 中鍵
+                    e.preventDefault();
+                    state.isPanning = true;
+                    state.panStart = { x: e.clientX, y: e.clientY };
+                    svg.style.cursor = 'grabbing';
+                } else if (e.button === 0) { // 左鍵
+                    const { x, y } = getSvgCoords(e);
+                    const snapped = snapToGrid(x, y);
+
+                    if (state.mode === 'PLACING') {
+                        const newComp = createComponent(state.placingType, snapped.x, snapped.y, false);
+                        svg.appendChild(newComp);
+                        // 放置後可以繼續放置下一個
+                        // resetMode(); // 如果想放置一個後就結束，取消這行的註解
+                    } else if (state.mode === 'WIRING') {
+                        if (!state.wireStartPoint) {
+                            // 開始畫線
+                            state.wireStartPoint = snapped;
+                            tempWire = document.createElementNS(svgNS, 'line');
+                            tempWire.setAttribute('x1', snapped.x);
+                            tempWire.setAttribute('y1', snapped.y);
+                            tempWire.setAttribute('x2', snapped.x);
+                            tempWire.setAttribute('y2', snapped.y);
+                            tempWire.classList.add('wire');
+                            tempWire.style.opacity = '0.6';
+                            svg.appendChild(tempWire);
+                        } else {
+                            // 結束畫線
+                            const finalWire = document.createElementNS(svgNS, 'line');
+                            finalWire.setAttribute('x1', state.wireStartPoint.x);
+                            finalWire.setAttribute('y1', state.wireStartPoint.y);
+                            finalWire.setAttribute('x2', snapped.x);
+                            finalWire.setAttribute('y2', snapped.y);
+                            finalWire.classList.add('wire');
+                            svg.appendChild(finalWire);
+                            
+                            // 畫完一條線後重置
+                            state.wireStartPoint = null;
+                            if (tempWire) tempWire.remove();
+                            tempWire = null;
+                        }
+                    }
+                }
+            }
+
+            function onMouseMove(e) {
+                if (state.isPanning) {
+                    const dx = e.clientX - state.panStart.x;
+                    const dy = e.clientY - state.panStart.y;
+                    
+                    // 縮放會影響移動速度
+                    const zoomFactor = state.viewBox.w / svg.clientWidth;
+                    
+                    state.viewBox.x -= dx * zoomFactor;
+                    state.viewBox.y -= dy * zoomFactor;
+                    state.panStart = { x: e.clientX, y: e.clientY };
+                    updateViewBox();
+                    return;
+                }
+
+                const { x, y } = getSvgCoords(e);
+                const snapped = snapToGrid(x, y);
+
+                if (state.mode === 'PLACING' && ghostComponent) {
+                    ghostComponent.setAttribute('transform', `translate(${snapped.x}, ${snapped.y})`);
+                } else if (state.mode === 'WIRING' && tempWire) {
+                    tempWire.setAttribute('x2', snapped.x);
+                    tempWire.setAttribute('y2', snapped.y);
+                }
+            }
+
+            function onMouseUp(e) {
+                if (e.button === 1) { // 中鍵
+                    state.isPanning = false;
+                    if (state.mode === 'IDLE') svg.style.cursor = 'default';
+                    else svg.style.cursor = 'crosshair';
+                }
+            }
+            
+            function onMouseLeave(e) {
+                 if (state.isPanning) {
+                    state.isPanning = false;
+                    if (state.mode === 'IDLE') svg.style.cursor = 'default';
+                    else svg.style.cursor = 'crosshair';
+                }
+            }
+
+            function onWheel(e) {
+                e.preventDefault();
+                const zoomIntensity = 0.1;
+                const { x, y } = getSvgCoords(e);
+                
+                const wheel = e.deltaY < 0 ? 1 : -1;
+                const zoom = Math.exp(wheel * zoomIntensity);
+
+                const newW = state.viewBox.w * zoom;
+                const newH = state.viewBox.h * zoom;
+
+                state.viewBox.x -= (x - state.viewBox.x) * (zoom - 1);
+                state.viewBox.y -= (y - state.viewBox.y) * (zoom - 1);
+                state.viewBox.w = newW;
+                state.viewBox.h = newH;
+                
+                updateViewBox();
+            }
+
+            // --- 輔助函式 ---
+            function updateViewBox() {
+                svg.setAttribute('viewBox', `${state.viewBox.x} ${state.viewBox.y} ${state.viewBox.w} ${state.viewBox.h}`);
+            }
+
+            // 將螢幕座標轉換為 SVG 內部座標
+            function getSvgCoords(e) {
+                let pt = svg.createSVGPoint();
+                pt.x = e.clientX;
+                pt.y = e.clientY;
+                return pt.matrixTransform(svg.getScreenCTM().inverse());
+            }
+
+            // 貼齊網格
+            function snapToGrid(x, y) {
+                return {
+                    x: Math.round(x / gridSize) * gridSize,
+                    y: Math.round(y / gridSize) * gridSize
+                };
+            }
+
+            // 啟動應用程式
+            init();
+        });
+    </script>
+</body>
+</html>
