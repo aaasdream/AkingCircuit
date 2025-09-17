@@ -4,36 +4,33 @@ import { createComponentData, getComponentSVG, updateComponentTerminals } from '
 import { updateButtonStates, updatePropertiesPanel } from './ui.js';
 
 let ghostComponent = null;
-let tempWire = null;
+let tempWireEl = null; // 用於預覽的 <polyline> 元素
 
 function setMode(newMode, options = {}) {
     state.mode = newMode;
     state.placingType = options.placingType || null;
     state.selectedComponentIds = [];
-    state.ghostRotation = 0; // 重置幽靈旋轉
-    
+    state.ghostRotation = 0;
+    state.currentWirePoints = [];
     if (ghostComponent) { ghostComponent.remove(); ghostComponent = null; }
-    if (tempWire) { tempWire.remove(); tempWire = null; }
-
-    if (state.mode === 'PLACING') {
-        ghostComponent = document.createElementNS(svgNS, 'g');
-        ghostComponent.innerHTML = getComponentSVG(state.placingType);
-        ghostComponent.classList.add('ghost');
-        svg.appendChild(ghostComponent);
-    }
-    
+    if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
     const cursors = { 'SELECT': 'default', 'WIRING': 'crosshair', 'PLACING': 'crosshair' };
     svg.style.cursor = cursors[state.mode] || 'default';
-
     updateButtonStates();
     updatePropertiesPanel();
 }
 
 function onMouseDown(e) {
-    // 中鍵平移優先
-    if (e.button === 1) {
+    if (e.button === 1) { // 中鍵平移優先
         state.isPanning = true; state.panStart = { x: e.clientX, y: e.clientY };
         svg.style.cursor = 'grabbing';
+        return;
+    }
+    if (e.button === 2) { // 右鍵
+        if (state.mode === 'WIRING' && state.currentWirePoints.length > 0) {
+            e.preventDefault();
+            finalizeCurrentWire();
+        }
         return;
     }
     // 只處理左鍵
@@ -50,29 +47,26 @@ function onMouseDown(e) {
         circuit.components.push(newComp);
         render();
     } else if (state.mode === 'WIRING') {
+        const snappedX = snapToGrid(x, gridSize);
+        const snappedY = snapToGrid(y, gridSize);
+        let clickPoint = { x: snappedX, y: snappedY };
         const nearestTerminal = findNearestTerminal(x, y, 10);
-        if (!nearestTerminal) return;
-
-        const startComp = circuit.components.find(c => c.id === nearestTerminal.componentId);
-        const startPos = startComp.terminals[nearestTerminal.terminalId];
-
-        if (!state.wireStartTerminal) {
-            state.wireStartTerminal = nearestTerminal;
-            tempWire = document.createElementNS(svgNS, 'line');
-            tempWire.setAttribute('x1', startPos.x); tempWire.setAttribute('y1', startPos.y);
-            tempWire.setAttribute('x2', x); tempWire.setAttribute('y2', y);
-            tempWire.classList.add('wire'); tempWire.style.pointerEvents = 'none';
-            svg.appendChild(tempWire);
+        if (nearestTerminal) {
+            clickPoint = { x: nearestTerminal.x, y: nearestTerminal.y, terminal: nearestTerminal };
+        }
+        if (state.currentWirePoints.length === 0) {
+            state.currentWirePoints.push(clickPoint);
+            tempWireEl = document.createElementNS(svgNS, 'polyline');
+            tempWireEl.classList.add('wire');
+            tempWireEl.style.opacity = '0.7';
+            svg.appendChild(tempWireEl);
         } else {
-            const endTerminal = nearestTerminal;
-            const startTerminal = state.wireStartTerminal;
-            if (startTerminal.componentId !== endTerminal.componentId || startTerminal.terminalId !== endTerminal.terminalId) {
-                circuit.wires.push({ from: startTerminal, to: endTerminal });
+            const lastPoint = state.currentWirePoints[state.currentWirePoints.length - 1];
+            const intermediatePoint = getOrthogonalIntermediatePoint(lastPoint, clickPoint);
+            state.currentWirePoints.push(intermediatePoint, clickPoint);
+            if (nearestTerminal) {
+                finalizeCurrentWire();
             }
-            state.wireStartTerminal = null;
-            if (tempWire) tempWire.remove();
-            tempWire = null;
-            render();
         }
     } else if (state.mode === 'SELECT') {
         const clickedElement = e.target.closest('.component');
@@ -144,19 +138,53 @@ function onMouseMove(e) {
         const snappedX = snapToGrid(x, gridSize);
         const snappedY = snapToGrid(y, gridSize);
         ghostComponent.setAttribute('transform', `translate(${snappedX}, ${snappedY}) rotate(${state.ghostRotation})`);
-    } else if (state.mode === 'WIRING' && tempWire) {
-        tempWire.setAttribute('x2', x);
-        tempWire.setAttribute('y2', y);
+    } else if (state.mode === 'WIRING' && tempWireEl && state.currentWirePoints.length > 0) {
+        const lastPoint = state.currentWirePoints[state.currentWirePoints.length - 1];
+        const snappedX = snapToGrid(x, gridSize);
+        const snappedY = snapToGrid(y, gridSize);
+        let mousePoint = { x: snappedX, y: snappedY };
+        const nearestTerminal = findNearestTerminal(x, y, 10);
+        if (nearestTerminal) {
+            mousePoint = { x: nearestTerminal.x, y: nearestTerminal.y };
+        }
+        const intermediatePoint = getOrthogonalIntermediatePoint(lastPoint, mousePoint);
+        const previewPoints = [...state.currentWirePoints, intermediatePoint, mousePoint];
+        tempWireEl.setAttribute('points', previewPoints.map(p => `${p.x},${p.y}`).join(' '));
     }
 }
 
+function getOrthogonalIntermediatePoint(p1, p2) {
+    const dx = Math.abs(p1.x - p2.x);
+    const dy = Math.abs(p1.y - p2.y);
+    if (dx > dy) {
+        return { x: p2.x, y: p1.y };
+    } else {
+        return { x: p1.x, y: p2.y };
+    }
+}
+
+function finalizeCurrentWire() {
+    if (state.currentWirePoints.length < 2) {
+        state.currentWirePoints = [];
+        if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
+        return;
+    }
+    const newWire = {
+        id: `w${circuit.wires.length + 1}`,
+        points: state.currentWirePoints,
+    };
+    circuit.wires.push(newWire);
+    state.currentWirePoints = [];
+    if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
+    render();
+}
+
 function onMouseUp(e) {
-    if (e.button === 1) { // 中鍵
+    if (e.button === 1) {
         state.isPanning = false;
         const cursors = { 'SELECT': 'default', 'WIRING': 'crosshair', 'PLACING': 'crosshair' };
         svg.style.cursor = cursors[state.mode] || 'default';
     }
-
     // 結束元件拖曳
     if (state.isDragging) {
         state.isDragging = false;
@@ -197,10 +225,8 @@ function onWheel(e) {
 
 function onKeyDown(e) {
     if (e.key === 'Escape') {
-        if (state.mode === 'WIRING' && state.wireStartTerminal) {
-            state.wireStartTerminal = null;
-            if(tempWire) tempWire.remove();
-            tempWire = null;
+        if (state.mode === 'WIRING' && state.currentWirePoints.length > 0) {
+            finalizeCurrentWire();
         } else {
             setMode('SELECT');
         }

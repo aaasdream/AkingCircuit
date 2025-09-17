@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>進階電路模擬器</title>
+    <script src="https://cdn.jsdelivr.net/npm/spice.js/dist/spice.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- 左側面板 -->
+        <div id="left-panel">
+            <div class="panel-section">
+                <h3>元件庫</h3>
+                <button class="component-btn" data-type="Resistor">電阻</button>
+                <button class="component-btn" data-type="Capacitor">電容</button>
+                <button class="component-btn" data-type="Inductor">電感</button>
+                <button class="component-btn" data-type="DC_Source">直流電源</button>
+            </div>
+            <div class="panel-section">
+                <h3>工具</h3>
+                <button id="select-tool-btn" class="component-btn">選取工具</button>
+                <button id="wire-tool-btn" class="component-btn">連線工具</button>
+            </div>
+            <div class="panel-section">
+                <h3>模擬</h3>
+                <button id="simulate-btn" class="component-btn" style="background-color:#4CAF50;">執行直流分析</button>
+            </div>
+        </div>
+
+        <!-- 中間 SVG 畫布容器 -->
+        <div id="canvas-container">
+            <svg id="main-canvas"></svg>
+        </div>
+
+        <!-- 右側屬性面板 -->
+        <div id="right-panel">
+             <h3>屬性</h3>
+             <div id="properties-panel">
+                <div id="no-selection">未選取元件</div>
+             </div>
+        </div>
+    </div>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

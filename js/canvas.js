@@ -1,4 +1,4 @@
-import { svg, svgNS, state, circuit } from './state.js';
+import { svg, svgNS, state, circuit, gridSize } from './state.js';
 import { getComponentSVG } from './components.js';
 
 // 初始化網格背景
@@ -21,27 +21,63 @@ export function updateViewBox() {
     svg.setAttribute('viewBox', `${state.viewBox.x} ${state.viewBox.y} ${state.viewBox.w} ${state.viewBox.h}`);
 }
 
-// 全局渲染函式 (核心)
+function pointsToSvgPath(points) {
+    return points.map(p => `${p.x},${p.y}`).join(' ');
+}
+
 export function render() {
-    // 清空除了網格和defs之外的所有元素
+    // Sticky Wires: 更新與元件相連的導線端點
+    circuit.wires.forEach(wire => {
+        // 更新起始點
+        const startTerminalInfo = wire.points[0].terminal;
+        if (startTerminalInfo) {
+            const component = circuit.components.find(c => c.id === startTerminalInfo.componentId);
+            if (component) {
+                const terminalPos = component.terminals[startTerminalInfo.terminalId];
+                wire.points[0].x = terminalPos.x;
+                wire.points[0].y = terminalPos.y;
+            }
+        }
+        // 更新結束點
+        const endTerminalInfo = wire.points[wire.points.length - 1].terminal;
+        if (endTerminalInfo) {
+            const component = circuit.components.find(c => c.id === endTerminalInfo.componentId);
+            if (component) {
+                const terminalPos = component.terminals[endTerminalInfo.terminalId];
+                wire.points[wire.points.length - 1].x = terminalPos.x;
+                wire.points[wire.points.length - 1].y = terminalPos.y;
+            }
+        }
+    });
+
+    // 清空畫布
     while (svg.children.length > 2) {
         svg.removeChild(svg.children[2]);
     }
 
-    // 渲染線路
+    // 渲染導線
     circuit.wires.forEach(wire => {
-        const fromComp = circuit.components.find(c => c.id === wire.from.componentId);
-        const toComp = circuit.components.find(c => c.id === wire.to.componentId);
-        if (!fromComp || !toComp) return;
-
-        const startPos = fromComp.terminals[wire.from.terminalId];
-        const endPos = toComp.terminals[wire.to.terminalId];
-
-        const line = document.createElementNS(svgNS, 'line');
-        line.setAttribute('x1', startPos.x); line.setAttribute('y1', startPos.y);
-        line.setAttribute('x2', endPos.x); line.setAttribute('y2', endPos.y);
-        line.classList.add('wire');
-        svg.appendChild(line);
+        const polyline = document.createElementNS(svgNS, 'polyline');
+        polyline.setAttribute('points', pointsToSvgPath(wire.points));
+        polyline.classList.add('wire');
+        polyline.dataset.id = wire.id;
+        if (state.selectedWireIds && state.selectedWireIds.includes(wire.id)) {
+            polyline.classList.add('selected');
+        }
+        svg.appendChild(polyline);
+        // 渲染頂點控點
+        if (state.selectedWireIds && state.selectedWireIds.includes(wire.id)) {
+            wire.points.forEach((p, index) => {
+                const handle = document.createElementNS(svgNS, 'circle');
+                handle.setAttribute('cx', p.x);
+                handle.setAttribute('cy', p.y);
+                handle.setAttribute('r', 4);
+                handle.classList.add('wire-handle');
+                handle.dataset.wireId = wire.id;
+                handle.dataset.vertexIndex = index;
+                svg.appendChild(handle);
+            });
+        }
     });
 
     // 渲染元件及其端點
@@ -55,7 +91,6 @@ export function render() {
             g.classList.add('selected');
         }
         svg.appendChild(g);
-
         Object.values(comp.terminals).forEach(term => {
             const terminalCircle = document.createElementNS(svgNS, 'circle');
             terminalCircle.setAttribute('cx', term.x); terminalCircle.setAttribute('cy', term.y);
@@ -63,6 +98,46 @@ export function render() {
             terminalCircle.classList.add('component-terminal');
             svg.appendChild(terminalCircle);
         });
+    });
+
+    // Junction Dots
+    const junctionPoints = new Map();
+    circuit.wires.forEach(wire => {
+        [wire.points[0], wire.points[wire.points.length-1]].forEach(p => {
+            if(p.terminal) {
+                const key = `${p.terminal.componentId}_${p.terminal.terminalId}`;
+                junctionPoints.set(key, (junctionPoints.get(key) || 0) + 1);
+            }
+        });
+    });
+    circuit.wires.forEach(wire => {
+        wire.points.forEach(p => {
+            if(p.terminal) {
+                const key = `T_${p.x}_${p.y}`;
+                junctionPoints.set(key, (junctionPoints.get(key) || 0) + 1);
+            }
+        });
+    });
+    junctionPoints.forEach((count, key) => {
+        if (count > 1) {
+            let point;
+            if (key.startsWith('T_')) {
+                const [,x,y] = key.split('_');
+                point = {x: parseFloat(x), y: parseFloat(y)};
+            } else {
+                const [comp_id, term_id] = key.split('_');
+                const comp = circuit.components.find(c => c.id === comp_id);
+                if (comp) point = comp.terminals[term_id];
+            }
+            if (point) {
+                const dot = document.createElementNS(svgNS, 'circle');
+                dot.setAttribute('cx', point.x);
+                dot.setAttribute('cy', point.y);
+                dot.setAttribute('r', 4);
+                dot.classList.add('junction-dot');
+                svg.appendChild(dot);
+            }
+        }
     });
 }
 
@@ -75,16 +150,45 @@ export function getSvgCoords(e) {
 export function snapToGrid(value, gridSize) {
     return Math.round(value / gridSize) * gridSize;
 }
+// findNearestTerminal 支援吸附
 export function findNearestTerminal(x, y, radius) {
-    let nearest = null; let minDist = radius * radius;
+    let nearest = null; let minDistSq = radius * radius;
     for (const comp of circuit.components) {
         for (const termId in comp.terminals) {
             const term = comp.terminals[termId];
             const dx = x - term.x, dy = y - term.y;
             const distSq = dx * dx + dy * dy;
-            if (distSq < minDist) {
-                minDist = distSq;
-                nearest = { componentId: comp.id, terminalId: termId };
+            if (distSq < minDistSq) {
+                minDistSq = distSq;
+                nearest = { type: 'terminal', componentId: comp.id, terminalId: termId, x: term.x, y: term.y };
+            }
+        }
+    }
+    return nearest;
+}
+export function findNearestWire(x, y, radius) {
+    let nearest = null;
+    let minDist = radius;
+    for (const wire of circuit.wires) {
+        for (let i = 0; i < wire.points.length - 1; i++) {
+            const p1 = wire.points[i];
+            const p2 = wire.points[i+1];
+            if (Math.max(p1.x, p2.x) < x - radius || Math.min(p1.x, p2.x) > x + radius ||
+                Math.max(p1.y, p2.y) < y - radius || Math.min(p1.y, p2.y) > y + radius) {
+                continue;
+            }
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const lenSq = dx*dx + dy*dy;
+            if (lenSq === 0) continue;
+            let t = ((x - p1.x) * dx + (y - p1.y) * dy) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            const projX = p1.x + t * dx;
+            const projY = p1.y + t * dy;
+            const dist = Math.sqrt((x - projX)**2 + (y - projY)**2);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = { type: 'wire', wireId: wire.id, x: projX, y: projY };
             }
         }
     }
