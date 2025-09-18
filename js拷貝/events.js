@@ -1,12 +1,13 @@
 import { svg, state, circuit, gridSize, svgNS } from './state.js';
-import { updateViewBox, getSvgCoords, snapToGrid, findNearestTerminal, findNearestWire, render, isPathColliding } from './canvas.js';
+import { updateViewBox, getSvgCoords, snapToGrid, findNearestTerminal, findNearestWire, render } from './canvas.js';
 import { createComponentData, getComponentSVG, updateComponentTerminals } from './components.js';
 import { updateButtonStates, updatePropertiesPanel } from './ui.js';
 
 let ghostComponent = null;
-let tempWireEl = null;
+let tempWireEl = null; // 用於預覽的 <polyline> 元素
 
 function setMode(newMode, options = {}) {
+    // 清理上一個模式的狀態
     if (ghostComponent) { ghostComponent.remove(); ghostComponent = null; }
     if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
 
@@ -15,8 +16,9 @@ function setMode(newMode, options = {}) {
     state.selectedComponentIds = [];
     state.ghostRotation = 0;
     state.currentWirePoints = [];
-    state.wireDirection = 'UNDETERMINED';
+    state.wireDirection = 'UNDETERMINED'; // << 新增：重置佈線方向
     
+    // 如果是放置模式，創建幽靈元件
     if (state.mode === 'PLACING' && state.placingType) {
         ghostComponent = document.createElementNS(svgNS, 'g');
         ghostComponent.innerHTML = getComponentSVG(state.placingType);
@@ -31,18 +33,19 @@ function setMode(newMode, options = {}) {
 }
 
 function onMouseDown(e) {
-    if (e.button === 1) {
+    if (e.button === 1) { // 中鍵平移優先
         state.isPanning = true; state.panStart = { x: e.clientX, y: e.clientY };
         svg.style.cursor = 'grabbing';
         return;
     }
-    if (e.button === 2) {
+    if (e.button === 2) { // 右鍵
         if (state.mode === 'WIRING' && state.currentWirePoints.length > 0) {
             e.preventDefault();
             finalizeCurrentWire();
         }
         return;
     }
+    // 只處理左鍵
     if (e.button !== 0) return;
 
     if (state.mode === 'PLACING') {
@@ -50,66 +53,54 @@ function onMouseDown(e) {
         const snappedX = snapToGrid(x, gridSize);
         const snappedY = snapToGrid(y, gridSize);
         const newComp = createComponentData(state.placingType, snappedX, snappedY);
-        newComp.rotation = state.ghostRotation;
-        updateComponentTerminals(newComp);
+        newComp.rotation = state.ghostRotation; // 應用預覽時的旋轉
+        updateComponentTerminals(newComp); // 根據旋轉更新端點
         circuit.components.push(newComp);
         render();
 
+        // 重新創建幽靈元件，使其在放置後能繼續顯示
         if (state.mode === 'PLACING' && state.placingType) {
             if (ghostComponent) ghostComponent.remove();
             ghostComponent = document.createElementNS(svgNS, 'g');
             ghostComponent.innerHTML = getComponentSVG(state.placingType);
             ghostComponent.classList.add('ghost');
             svg.appendChild(ghostComponent);
-            onMouseMove(e);
+            onMouseMove(e); // 手動觸發一次 onMouseMove 來立即定位新的幽靈元件
         }
     } else if (state.mode === 'WIRING') {
         const { snapPoint, connected } = getWireSnapPoint(e);
-        
-        // 情況 1: 從一條現有導線上開始畫新線
-        if (snapPoint.wire && state.currentWirePoints.length === 0) {
-            const originalWire = circuit.wires.find(w => w.id === snapPoint.wire.wireId);
-            if (originalWire) {
-                const newPoint = { x: snapPoint.x, y: snapPoint.y }; 
-                const segmentStartPoint = snapPoint.wire.segment[0];
-                const segmentStartIndex = originalWire.points.findIndex(p => p.x === segmentStartPoint.x && p.y === segmentStartPoint.y);
-                
-                if (segmentStartIndex !== -1) {
-                    const pointExists = originalWire.points.some(p => p.x === newPoint.x && p.y === newPoint.y);
-                    if (!pointExists) {
-                        originalWire.points.splice(segmentStartIndex + 1, 0, newPoint);
-                    }
-                }
-            }
-        }
-        
-        // 統一處理當前正在繪製的導線
+
         if (state.currentWirePoints.length === 0) {
+            // 開始一條新的導線
             state.currentWirePoints.push(snapPoint);
             tempWireEl = document.createElementNS(svgNS, 'polyline');
             tempWireEl.classList.add('wire');
             tempWireEl.style.opacity = '0.7';
             svg.appendChild(tempWireEl);
         } else {
+            // 繼續現有的導線
             const lastPoint = state.currentWirePoints[state.currentWirePoints.length - 1];
             let intermediatePoint;
 
+            // 根據滑鼠移動時鎖定的方向來決定轉角點
+            // 如果沒有移動（方向未定），則預設為水平優先
             if (state.wireDirection === 'VERTICAL') {
                 intermediatePoint = { x: lastPoint.x, y: snapPoint.y };
-            } else { // HORIZONTAL or UNDETERMINED
+            } else { // 'HORIZONTAL' or 'UNDETERMINED'
                 intermediatePoint = { x: snapPoint.x, y: lastPoint.y };
             }
             
+            // 避免產生零長度的線段
             if (intermediatePoint.x !== lastPoint.x || intermediatePoint.y !== lastPoint.y) {
                  state.currentWirePoints.push(intermediatePoint);
             }
             state.currentWirePoints.push(snapPoint);
+            
+            if (connected) {
+                finalizeCurrentWire();
+            }
         }
-
-        if (connected && state.currentWirePoints.length > 1) {
-            finalizeCurrentWire();
-        }
-        
+        // 為下一段線路重置方向
         state.wireDirection = 'UNDETERMINED';
 
     } else if (state.mode === 'SELECT') {
@@ -181,47 +172,29 @@ function onMouseMove(e) {
         const dy = Math.abs(snapPoint.y - lastPoint.y);
         const dist = Math.sqrt(dx*dx + dy*dy);
         
-        const DIR_LOCK_THRESHOLD = 10;
-        const DIR_RESET_RADIUS = gridSize * 1.5;
+        const DIR_LOCK_THRESHOLD = 10; // 超過10像素的移動就鎖定方向
+        const DIR_RESET_RADIUS = gridSize * 1.5; // 在起點半徑範圍內可重置方向
 
+        // 後悔機制：如果滑鼠移回起點附近，重置方向
         if (dist < DIR_RESET_RADIUS) {
             state.wireDirection = 'UNDETERMINED';
         } 
+        // 方向鎖定：如果方向未定且移動超過閾值，則根據移動方向鎖定
         else if (state.wireDirection === 'UNDETERMINED' && dist > DIR_LOCK_THRESHOLD) {
             state.wireDirection = (dx > dy) ? 'HORIZONTAL' : 'VERTICAL';
         }
         
         let previewPoints = [...state.currentWirePoints];
-        
-        if (state.wireDirection !== 'UNDETERMINED') {
-            const ignoreIds = new Set();
-            if (lastPoint.terminal) ignoreIds.add(lastPoint.terminal.componentId);
-            if (snapPoint.terminal) ignoreIds.add(snapPoint.terminal.componentId);
-            const ignoreIdsArray = Array.from(ignoreIds);
+        let intermediatePoint;
 
-            const pathH_intermediate = { x: snapPoint.x, y: lastPoint.y };
-            const pathV_intermediate = { x: lastPoint.x, y: snapPoint.y };
-
-            let preferredPath, alternativePath;
-
-            if (state.wireDirection === 'HORIZONTAL') {
-                preferredPath = [lastPoint, pathH_intermediate, snapPoint];
-                alternativePath = [lastPoint, pathV_intermediate, snapPoint];
-            } else {
-                preferredPath = [lastPoint, pathV_intermediate, snapPoint];
-                alternativePath = [lastPoint, pathH_intermediate, snapPoint];
-            }
-
-            const preferredCollides = isPathColliding(preferredPath, ignoreIdsArray);
-            const alternativeCollides = isPathColliding(alternativePath, ignoreIdsArray);
-
-            if (preferredCollides && !alternativeCollides) {
-                previewPoints.push(alternativePath[1], alternativePath[2]);
-            } else {
-                previewPoints.push(preferredPath[1], preferredPath[2]);
-            }
-
-        } else {
+        if (state.wireDirection === 'HORIZONTAL') {
+            intermediatePoint = { x: snapPoint.x, y: lastPoint.y };
+            previewPoints.push(intermediatePoint, snapPoint);
+        } else if (state.wireDirection === 'VERTICAL') {
+            intermediatePoint = { x: lastPoint.x, y: snapPoint.y };
+            previewPoints.push(intermediatePoint, snapPoint);
+        } else { // 'UNDETERMINED'
+            // 方向未定時，只畫一條直線到滑鼠位置
             previewPoints.push(snapPoint);
         }
         
@@ -240,7 +213,7 @@ function getWireSnapPoint(e) {
     const nearestWire = findNearestWire(x, y, 10);
 
     if (nearestTerminal) {
-        snapPoint = { x: nearestTerminal.x, y: nearestTerminal.y, terminal: { componentId: nearestTerminal.componentId, terminalId: nearestTerminal.terminalId } };
+        snapPoint = { x: nearestTerminal.x, y: nearestTerminal.y, terminal: nearestTerminal };
         connected = true;
     } else if (nearestWire) {
         snapPoint = { x: nearestWire.x, y: nearestWire.y, wire: nearestWire };
@@ -257,25 +230,7 @@ function finalizeCurrentWire() {
         return;
     }
 
-    // **【修改處】**
-    // 情況 2: 檢查導線的結束點是否連接到另一條導線
-    const endPoint = state.currentWirePoints[state.currentWirePoints.length - 1];
-    if (endPoint.wire) {
-        const originalWire = circuit.wires.find(w => w.id === endPoint.wire.wireId);
-        if (originalWire) {
-            const newPoint = { x: endPoint.x, y: endPoint.y };
-            const segmentStartPoint = endPoint.wire.segment[0];
-            const segmentStartIndex = originalWire.points.findIndex(p => p.x === segmentStartPoint.x && p.y === segmentStartPoint.y);
-
-            if (segmentStartIndex !== -1) {
-                const pointExists = originalWire.points.some(p => p.x === newPoint.x && p.y === newPoint.y);
-                if (!pointExists) {
-                    originalWire.points.splice(segmentStartIndex + 1, 0, newPoint);
-                }
-            }
-        }
-    }
-
+    // 清理線路點：移除連續的重複點
     const cleanedPoints = state.currentWirePoints.reduce((acc, point) => {
         const last = acc[acc.length - 1];
         if (!last || last.x !== point.x || last.y !== point.y) {
