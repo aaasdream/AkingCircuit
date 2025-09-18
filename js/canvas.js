@@ -25,62 +25,122 @@ function pointsToSvgPath(points) {
     return points.map(p => `${p.x},${p.y}`).join(' ');
 }
 
+function getOrthogonalIntermediatePoint(p1, p2) {
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    return { x: midX, y: midY };
+}
+
 export function render() {
-    // Sticky Wires: 更新與元件相連的導線端點
+    // --- Pre-rendering Phase: Update wire geometries ---
+
+    // 1. Sticky terminals: Update wire endpoints attached to components
     circuit.wires.forEach(wire => {
-        // 更新起始點
-        const startTerminalInfo = wire.points[0].terminal;
-        if (startTerminalInfo) {
-            const component = circuit.components.find(c => c.id === startTerminalInfo.componentId);
+        const startPoint = wire.points[0];
+        if (startPoint.terminal) {
+            const component = circuit.components.find(c => c.id === startPoint.terminal.componentId);
             if (component) {
-                const terminalPos = component.terminals[startTerminalInfo.terminalId];
-                wire.points[0].x = terminalPos.x;
-                wire.points[0].y = terminalPos.y;
+                const terminalPos = component.terminals[startPoint.terminal.terminalId];
+                startPoint.x = terminalPos.x;
+                startPoint.y = terminalPos.y;
             }
         }
-        // 更新結束點
-        const endTerminalInfo = wire.points[wire.points.length - 1].terminal;
-        if (endTerminalInfo) {
-            const component = circuit.components.find(c => c.id === endTerminalInfo.componentId);
+        const endPoint = wire.points[wire.points.length - 1];
+        if (endPoint.terminal) {
+            const component = circuit.components.find(c => c.id === endPoint.terminal.componentId);
             if (component) {
-                const terminalPos = component.terminals[endTerminalInfo.terminalId];
-                wire.points[wire.points.length - 1].x = terminalPos.x;
-                wire.points[wire.points.length - 1].y = terminalPos.y;
+                const terminalPos = component.terminals[endPoint.terminal.terminalId];
+                endPoint.x = terminalPos.x;
+                endPoint.y = terminalPos.y;
             }
         }
     });
 
-    // 清空畫布
+    // 2. Sticky wire-to-wire connections
+    circuit.wires.forEach(wireToMove => {
+        wireToMove.points.forEach((pointToMove, index) => {
+            // Only move points that are not endpoints connected to a terminal
+            if (pointToMove.terminal) return;
+            // Also, don't move the first or last point of a wire if it's a free-floating endpoint
+            if (index === 0 || index === wireToMove.points.length - 1) return;
+
+
+            for (const wireToStickTo of circuit.wires) {
+                if (wireToMove.id === wireToStickTo.id) continue;
+
+                for (let i = 0; i < wireToStickTo.points.length - 1; i++) {
+                    const p1 = wireToStickTo.points[i];
+                    const p2 = wireToStickTo.points[i + 1];
+                    
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    if (dx === 0 && dy === 0) continue;
+
+                    const lenSq = dx * dx + dy * dy;
+                    const t = ((pointToMove.x - p1.x) * dx + (pointToMove.y - p1.y) * dy) / lenSq;
+
+                    const projX = p1.x + t * dx;
+                    const projY = p1.y + t * dy;
+                    const distSq = (pointToMove.x - projX)**2 + (pointToMove.y - projY)**2;
+
+                    // If the point is very close to the segment, and within the segment bounds
+                    if (distSq < 0.1 && t > 0 && t < 1) { // Use > 0 and < 1 to avoid snapping to endpoints
+                        pointToMove.x = projX;
+                        pointToMove.y = projY;
+                        return; // Snap to the first segment found
+                    }
+                }
+            }
+        });
+    });
+
+    // 3. Enforce orthogonality by adjusting existing corners
+    circuit.wires.forEach(wire => {
+        for (let i = 1; i < wire.points.length - 1; i++) {
+            const p_prev = wire.points[i - 1];
+            const p_curr = wire.points[i];
+            const p_next = wire.points[i + 1];
+
+            const isPrevHorizontal = p_prev.y === p_curr.y;
+            const isPrevVertical = p_prev.x === p_curr.x;
+            
+            // If the previous segment is not orthogonal, we can't do much, so skip.
+            if (!isPrevHorizontal && !isPrevVertical) continue;
+
+            // If the current corner is already orthogonal, skip.
+            if ((isPrevHorizontal && p_curr.x === p_next.x) || (isPrevVertical && p_curr.y === p_next.y)) {
+                continue;
+            }
+            
+            // Adjust the corner to make the next segment orthogonal
+            if (isPrevHorizontal) {
+                // Previous was horizontal, so make next vertical
+                p_next.x = p_curr.x;
+            } else { // Previous was vertical
+                // Previous was vertical, so make next horizontal
+                p_next.y = p_curr.y;
+            }
+        }
+    });
+
+
+    // --- Rendering Phase ---
+
+    // Clear canvas (preserving grid and defs)
     while (svg.children.length > 2) {
         svg.removeChild(svg.children[2]);
     }
 
-    // 渲染導線
+    // Render wires
     circuit.wires.forEach(wire => {
         const polyline = document.createElementNS(svgNS, 'polyline');
         polyline.setAttribute('points', pointsToSvgPath(wire.points));
         polyline.classList.add('wire');
         polyline.dataset.id = wire.id;
-        if (state.selectedWireIds && state.selectedWireIds.includes(wire.id)) {
-            polyline.classList.add('selected');
-        }
         svg.appendChild(polyline);
-        // 渲染頂點控點
-        if (state.selectedWireIds && state.selectedWireIds.includes(wire.id)) {
-            wire.points.forEach((p, index) => {
-                const handle = document.createElementNS(svgNS, 'circle');
-                handle.setAttribute('cx', p.x);
-                handle.setAttribute('cy', p.y);
-                handle.setAttribute('r', 4);
-                handle.classList.add('wire-handle');
-                handle.dataset.wireId = wire.id;
-                handle.dataset.vertexIndex = index;
-                svg.appendChild(handle);
-            });
-        }
     });
 
-    // 渲染元件及其端點
+    // Render components and their terminals
     circuit.components.forEach(comp => {
         const g = document.createElementNS(svgNS, 'g');
         g.innerHTML = getComponentSVG(comp.type);
@@ -100,43 +160,49 @@ export function render() {
         });
     });
 
-    // Junction Dots
-    const junctionPoints = new Map();
-    circuit.wires.forEach(wire => {
-        [wire.points[0], wire.points[wire.points.length-1]].forEach(p => {
-            if(p.terminal) {
-                const key = `${p.terminal.componentId}_${p.terminal.terminalId}`;
-                junctionPoints.set(key, (junctionPoints.get(key) || 0) + 1);
+    // Render Junction Dots
+    const pointConnections = new Map();
+
+    // Collect all points from terminals and wires
+    circuit.components.forEach(comp => {
+        Object.values(comp.terminals).forEach(term => {
+            const key = `${term.x},${term.y}`;
+            if (!pointConnections.has(key)) {
+                pointConnections.set(key, { isTerminal: true, wireIds: new Set() });
+            } else {
+                pointConnections.get(key).isTerminal = true;
             }
         });
     });
+
     circuit.wires.forEach(wire => {
         wire.points.forEach(p => {
-            if(p.terminal) {
-                const key = `T_${p.x}_${p.y}`;
-                junctionPoints.set(key, (junctionPoints.get(key) || 0) + 1);
+            const key = `${p.x},${p.y}`;
+            if (!pointConnections.has(key)) {
+                pointConnections.set(key, { isTerminal: false, wireIds: new Set() });
             }
+            pointConnections.get(key).wireIds.add(wire.id);
         });
     });
-    junctionPoints.forEach((count, key) => {
-        if (count > 1) {
-            let point;
-            if (key.startsWith('T_')) {
-                const [,x,y] = key.split('_');
-                point = {x: parseFloat(x), y: parseFloat(y)};
-            } else {
-                const [comp_id, term_id] = key.split('_');
-                const comp = circuit.components.find(c => c.id === comp_id);
-                if (comp) point = comp.terminals[term_id];
-            }
-            if (point) {
-                const dot = document.createElementNS(svgNS, 'circle');
-                dot.setAttribute('cx', point.x);
-                dot.setAttribute('cy', point.y);
-                dot.setAttribute('r', 4);
-                dot.classList.add('junction-dot');
-                svg.appendChild(dot);
-            }
+
+    // Render a dot if a point is a T-junction or a terminal with a wire
+    pointConnections.forEach((conn, key) => {
+        const [xStr, yStr] = key.split(',');
+        const x = parseFloat(xStr);
+        const y = parseFloat(yStr);
+
+        // A junction is:
+        // 1. A point used by more than one wire (T-junction, cross-junction).
+        // 2. A terminal that also has at least one wire connected.
+        const isJunction = conn.wireIds.size > 1 || (conn.isTerminal && conn.wireIds.size > 0);
+
+        if (isJunction) {
+            const dot = document.createElementNS(svgNS, 'circle');
+            dot.setAttribute('cx', x);
+            dot.setAttribute('cy', y);
+            dot.setAttribute('r', 4);
+            dot.classList.add('junction-dot');
+            svg.appendChild(dot);
         }
     });
 }
@@ -188,7 +254,14 @@ export function findNearestWire(x, y, radius) {
             const dist = Math.sqrt((x - projX)**2 + (y - projY)**2);
             if (dist < minDist) {
                 minDist = dist;
-                nearest = { type: 'wire', wireId: wire.id, x: projX, y: projY };
+                // 對齊到網格，確保連接點的精確性
+                nearest = { 
+                    type: 'wire', 
+                    wireId: wire.id, 
+                    x: snapToGrid(projX, gridSize), 
+                    y: snapToGrid(projY, gridSize),
+                    segment: [p1, p2] // 返回被點擊的線段
+                };
             }
         }
     }

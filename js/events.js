@@ -1,5 +1,5 @@
 import { svg, state, circuit, gridSize, svgNS } from './state.js';
-import { updateViewBox, getSvgCoords, snapToGrid, findNearestTerminal, render } from './canvas.js';
+import { updateViewBox, getSvgCoords, snapToGrid, findNearestTerminal, findNearestWire, render } from './canvas.js';
 import { createComponentData, getComponentSVG, updateComponentTerminals } from './components.js';
 import { updateButtonStates, updatePropertiesPanel } from './ui.js';
 
@@ -7,13 +7,24 @@ let ghostComponent = null;
 let tempWireEl = null; // 用於預覽的 <polyline> 元素
 
 function setMode(newMode, options = {}) {
+    // 清理上一個模式的狀態
+    if (ghostComponent) { ghostComponent.remove(); ghostComponent = null; }
+    if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
+
     state.mode = newMode;
     state.placingType = options.placingType || null;
     state.selectedComponentIds = [];
     state.ghostRotation = 0;
     state.currentWirePoints = [];
-    if (ghostComponent) { ghostComponent.remove(); ghostComponent = null; }
-    if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
+    
+    // 如果是放置模式，創建幽靈元件
+    if (state.mode === 'PLACING' && state.placingType) {
+        ghostComponent = document.createElementNS(svgNS, 'g');
+        ghostComponent.innerHTML = getComponentSVG(state.placingType);
+        ghostComponent.classList.add('ghost');
+        svg.appendChild(ghostComponent);
+    }
+    
     const cursors = { 'SELECT': 'default', 'WIRING': 'crosshair', 'PLACING': 'crosshair' };
     svg.style.cursor = cursors[state.mode] || 'default';
     updateButtonStates();
@@ -36,9 +47,8 @@ function onMouseDown(e) {
     // 只處理左鍵
     if (e.button !== 0) return;
 
-    const { x, y } = getSvgCoords(e);
-    
     if (state.mode === 'PLACING') {
+        const { x, y } = getSvgCoords(e);
         const snappedX = snapToGrid(x, gridSize);
         const snappedY = snapToGrid(y, gridSize);
         const newComp = createComponentData(state.placingType, snappedX, snappedY);
@@ -46,29 +56,55 @@ function onMouseDown(e) {
         updateComponentTerminals(newComp); // 根據旋轉更新端點
         circuit.components.push(newComp);
         render();
-    } else if (state.mode === 'WIRING') {
-        const snappedX = snapToGrid(x, gridSize);
-        const snappedY = snapToGrid(y, gridSize);
-        let clickPoint = { x: snappedX, y: snappedY };
-        const nearestTerminal = findNearestTerminal(x, y, 10);
-        if (nearestTerminal) {
-            clickPoint = { x: nearestTerminal.x, y: nearestTerminal.y, terminal: nearestTerminal };
+
+        // 重新創建幽靈元件，使其在放置後能繼續顯示
+        if (state.mode === 'PLACING' && state.placingType) {
+            if (ghostComponent) ghostComponent.remove();
+            ghostComponent = document.createElementNS(svgNS, 'g');
+            ghostComponent.innerHTML = getComponentSVG(state.placingType);
+            ghostComponent.classList.add('ghost');
+            svg.appendChild(ghostComponent);
+            // 手動觸發一次 onMouseMove 來立即定位新的幽靈元件
+            onMouseMove(e);
         }
+    } else if (state.mode === 'WIRING') {
+        const { snapPoint, connected } = getWireSnapPoint(e);
+
+        if (snapPoint.wire) {
+            // 在現有導線上創建一個新的連接點
+            const originalWire = circuit.wires.find(w => w.id === snapPoint.wire.wireId);
+            if (originalWire) {
+                // 確保點擊的精確位置被使用
+                const newPoint = { x: snapPoint.x, y: snapPoint.y }; 
+                const segmentStartIndex = originalWire.points.indexOf(snapPoint.wire.segment[0]);
+                
+                if (segmentStartIndex !== -1) {
+                    // 檢查該點是否已存在於線段的端點
+                    const pointExists = originalWire.points.some(p => p.x === newPoint.x && p.y === newPoint.y);
+                    if (!pointExists) {
+                        // 插入新點到正確的線段位置
+                        originalWire.points.splice(segmentStartIndex + 1, 0, newPoint);
+                    }
+                }
+            }
+        }
+
         if (state.currentWirePoints.length === 0) {
-            state.currentWirePoints.push(clickPoint);
+            state.currentWirePoints.push(snapPoint);
             tempWireEl = document.createElementNS(svgNS, 'polyline');
             tempWireEl.classList.add('wire');
             tempWireEl.style.opacity = '0.7';
             svg.appendChild(tempWireEl);
         } else {
             const lastPoint = state.currentWirePoints[state.currentWirePoints.length - 1];
-            const intermediatePoint = getOrthogonalIntermediatePoint(lastPoint, clickPoint);
-            state.currentWirePoints.push(intermediatePoint, clickPoint);
-            if (nearestTerminal) {
+            const intermediatePoint = getOrthogonalIntermediatePoint(lastPoint, snapPoint);
+            state.currentWirePoints.push(intermediatePoint, snapPoint);
+            if (connected) {
                 finalizeCurrentWire();
             }
         }
     } else if (state.mode === 'SELECT') {
+        const { x, y } = getSvgCoords(e);
         const clickedElement = e.target.closest('.component');
         const clickedId = clickedElement ? clickedElement.dataset.id : null;
         
@@ -135,32 +171,98 @@ function onMouseMove(e) {
     }
     
     if (state.mode === 'PLACING' && ghostComponent) {
+        const { x, y } = getSvgCoords(e);
         const snappedX = snapToGrid(x, gridSize);
         const snappedY = snapToGrid(y, gridSize);
         ghostComponent.setAttribute('transform', `translate(${snappedX}, ${snappedY}) rotate(${state.ghostRotation})`);
     } else if (state.mode === 'WIRING' && tempWireEl && state.currentWirePoints.length > 0) {
         const lastPoint = state.currentWirePoints[state.currentWirePoints.length - 1];
-        const snappedX = snapToGrid(x, gridSize);
-        const snappedY = snapToGrid(y, gridSize);
-        let mousePoint = { x: snappedX, y: snappedY };
-        const nearestTerminal = findNearestTerminal(x, y, 10);
-        if (nearestTerminal) {
-            mousePoint = { x: nearestTerminal.x, y: nearestTerminal.y };
-        }
-        const intermediatePoint = getOrthogonalIntermediatePoint(lastPoint, mousePoint);
-        const previewPoints = [...state.currentWirePoints, intermediatePoint, mousePoint];
+        const { snapPoint } = getWireSnapPoint(e);
+        const intermediatePoint = getOrthogonalIntermediatePoint(lastPoint, snapPoint);
+        const previewPoints = [...state.currentWirePoints, intermediatePoint, snapPoint];
         tempWireEl.setAttribute('points', previewPoints.map(p => `${p.x},${p.y}`).join(' '));
     }
 }
 
+/**
+ * 獲取導線繪製時的吸附點
+ * @param {MouseEvent} e - 滑鼠事件
+ * @returns {{snapPoint: object, connected: boolean}}
+ */
+function getWireSnapPoint(e) {
+    const { x, y } = getSvgCoords(e);
+    const snappedX = snapToGrid(x, gridSize);
+    const snappedY = snapToGrid(y, gridSize);
+    let snapPoint = { x: snappedX, y: snappedY };
+    let connected = false;
+
+    const nearestTerminal = findNearestTerminal(x, y, 10);
+    const nearestWire = findNearestWire(x, y, 10);
+
+    if (nearestTerminal) {
+        snapPoint = { x: nearestTerminal.x, y: nearestTerminal.y, terminal: nearestTerminal };
+        connected = true;
+    } else if (nearestWire) {
+        snapPoint = { x: nearestWire.x, y: nearestWire.y, wire: nearestWire };
+        connected = true;
+    }
+    
+    return { snapPoint, connected };
+}
+
+function isRectColliding(rect) {
+    for (const comp of circuit.components) {
+        // 簡化碰撞檢測，將元件視為一個以中心點為準、有一定大小的方塊
+        // 這裡的 30x30 是一個估計值，未來可以根據元件的實際大小進行調整
+        const compRect = {
+            x: comp.x - 15,
+            y: comp.y - 15,
+            width: 30,
+            height: 30
+        };
+
+        // 檢查兩個矩形是否重疊
+        if (rect.x < compRect.x + compRect.width &&
+            rect.x + rect.width > compRect.x &&
+            rect.y < compRect.y + compRect.height &&
+            rect.y + rect.height > compRect.y) {
+            return true; // 發生碰撞
+        }
+    }
+    return false; // 沒有碰撞
+}
+
 function getOrthogonalIntermediatePoint(p1, p2) {
+    // 兩個可能的拐點
+    const path1_intermediate = { x: p2.x, y: p1.y };
+    const path2_intermediate = { x: p1.x, y: p2.y };
+
+    // 檢查路徑1的碰撞
+    const path1_rect1 = { x: Math.min(p1.x, path1_intermediate.x), y: Math.min(p1.y, path1_intermediate.y), width: Math.abs(p1.x - path1_intermediate.x), height: Math.abs(p1.y - path1_intermediate.y) };
+    const path1_rect2 = { x: Math.min(path1_intermediate.x, p2.x), y: Math.min(path1_intermediate.y, p2.y), width: Math.abs(path1_intermediate.x - p2.x), height: Math.abs(path1_intermediate.y - p2.y) };
+    const path1_collides = isRectColliding(path1_rect1) || isRectColliding(path1_rect2);
+
+    // 檢查路徑2的碰撞
+    const path2_rect1 = { x: Math.min(p1.x, path2_intermediate.x), y: Math.min(p1.y, path2_intermediate.y), width: Math.abs(p1.x - path2_intermediate.x), height: Math.abs(p1.y - path2_intermediate.y) };
+    const path2_rect2 = { x: Math.min(path2_intermediate.x, p2.x), y: Math.min(path2_intermediate.y, p2.y), width: Math.abs(path2_intermediate.x - p2.x), height: Math.abs(path2_intermediate.y - p2.y) };
+    const path2_collides = isRectColliding(path2_rect1) || isRectColliding(path2_rect2);
+
+    // 預設路徑選擇
     const dx = Math.abs(p1.x - p2.x);
     const dy = Math.abs(p1.y - p2.y);
-    if (dx > dy) {
-        return { x: p2.x, y: p1.y };
-    } else {
-        return { x: p1.x, y: p2.y };
+    const defaultChoice = (dx > dy) ? path1_intermediate : path2_intermediate;
+    const alternativeChoice = (dx > dy) ? path2_intermediate : path1_intermediate;
+
+    if (defaultChoice === path1_intermediate) {
+        if (!path1_collides) return path1_intermediate;
+        if (!path2_collides) return path2_intermediate;
+    } else { // defaultChoice is path2
+        if (!path2_collides) return path2_intermediate;
+        if (!path1_collides) return path1_intermediate;
     }
+    
+    // 如果兩條路徑都碰撞或都暢通，則返回預設選擇
+    return defaultChoice;
 }
 
 function finalizeCurrentWire() {

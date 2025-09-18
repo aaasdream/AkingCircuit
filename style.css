@@ -36,6 +36,12 @@ body, html {
 .wire { stroke: #ff9800; stroke-width: 2; fill: none; pointer-events: none; }
 .simulation-text { font-size: 14px; fill: #66ff66; font-family: monospace; text-anchor: middle; pointer-events: none; }
 
-/* 修正後的幽靈元件樣式 */
+/* 幽靈元件樣式 */
 .ghost { opacity: 0.6; pointer-events: none; }
 .ghost * { stroke: #00e6e6; fill: #333; }
+
+/* 連接點樣式 (新增) */
+.junction-dot {
+    fill: #ff9800; /* 與線條顏色相同 */
+    stroke: none;
+}
