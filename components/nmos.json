@@ -1,0 +1,77 @@
+{
+  "metadata": {
+    "name": "N通道MOSFET",
+    "type": "active", 
+    "category": "mosfet",
+    "description": "N通道增強型MOSFET，含體二極體",
+    "version": "1.0",
+    "author": "AkingCircuit"
+  },
+  
+  "geometry": {
+    "gridSize": 20,
+    "boundingBox": {
+      "width": 4,
+      "height": 4
+    },
+    "centerPoint": {"x": 0, "y": 0}
+  },
+  
+  "terminals": [
+    {
+      "name": "gate",
+      "displayName": "G",
+      "position": {"x": -2, "y": 0},
+      "direction": "input",
+      "electricalType": "signal"
+    },
+    {
+      "name": "drain", 
+      "displayName": "D",
+      "position": {"x": 0, "y": -2},
+      "direction": "bidirectional",
+      "electricalType": "signal"
+    },
+    {
+      "name": "source",
+      "displayName": "S", 
+      "position": {"x": 0, "y": 2},
+      "direction": "bidirectional",
+      "electricalType": "signal"
+    }
+  ],
+  
+  "svg": {
+    "template": "<!-- Drain terminal line --><line x1=\"0\" y1=\"${-gridSize*2}\" x2=\"0\" y2=\"${-gridSize}\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><!-- Source terminal line --><line x1=\"0\" y1=\"${gridSize}\" x2=\"0\" y2=\"${gridSize*2}\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><!-- Gate terminal line --><line x1=\"${-gridSize*2}\" y1=\"0\" x2=\"${-gridSize*0.7}\" y2=\"0\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><!-- Gate electrode --><line x1=\"${-gridSize*0.7}\" y1=\"${-gridSize*0.8}\" x2=\"${-gridSize*0.7}\" y2=\"${gridSize*0.8}\" stroke=\"${strokeColor}\" stroke-width=\"2\"></line><!-- Channel region --><line x1=\"${-gridSize*0.3}\" y1=\"${-gridSize*0.8}\" x2=\"${-gridSize*0.3}\" y2=\"${gridSize*0.8}\" stroke=\"${strokeColor}\" stroke-width=\"3\"></line><!-- Drain connection --><line x1=\"${-gridSize*0.3}\" y1=\"${-gridSize*0.8}\" x2=\"0\" y2=\"${-gridSize*0.8}\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><line x1=\"0\" y1=\"${-gridSize}\" x2=\"0\" y2=\"${-gridSize*0.8}\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><!-- Source connection --><line x1=\"${-gridSize*0.3}\" y1=\"${gridSize*0.8}\" x2=\"0\" y2=\"${gridSize*0.8}\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><line x1=\"0\" y1=\"${gridSize}\" x2=\"0\" y2=\"${gridSize*0.8}\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><!-- Body diode --><polygon points=\"${gridSize*0.4},-${gridSize*0.15} ${gridSize*0.4},${gridSize*0.15} ${gridSize*0.65},0\" fill=\"none\" stroke=\"${accentColor}\" stroke-width=\"2\"></polygon><line x1=\"${gridSize*0.65}\" y1=\"${-gridSize*0.15}\" x2=\"${gridSize*0.65}\" y2=\"${gridSize*0.15}\" stroke=\"${accentColor}\" stroke-width=\"2\"></line><!-- Connection to body diode --><line x1=\"0\" y1=\"0\" x2=\"${gridSize*0.4}\" y2=\"0\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><!-- N-channel arrow --><polygon points=\"${-gridSize*0.5},0 ${-gridSize*0.35},-${gridSize*0.08} ${-gridSize*0.35},${gridSize*0.08}\" fill=\"${accentColor}\"></polygon>",
+    "parameters": {
+      "gridSize": 20
+    },
+    "styles": {
+      "strokeWidth": 1,
+      "strokeColor": "currentColor",
+      "fillColor": "none",
+      "accentColor": "#00e6e6"
+    }
+  },
+  
+  "properties": {
+    "defaultValue": "IRF540",
+    "unit": "",
+    "customProperties": {
+      "Vth": 2.0,
+      "Rds_on": 0.077,
+      "Id_max": 27,
+      "Vds_max": 100
+    }
+  },
+  
+  "spice": {
+    "model": "NMOS",
+    "netlistTemplate": "M${id} ${terminals.drain} ${terminals.gate} ${terminals.source} ${terminals.source} ${value}",
+    "parameters": {
+      "Level": 1,
+      "Vto": 2.0,
+      "Kp": 20.87e-6
+    }
+  }
+}

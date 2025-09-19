@@ -65,17 +65,40 @@ export function generateNetlist() {
         });
     }
     // 生成網表字串
-    let netlist = "* Advanced Wiring Netlist\n\n";
+    let netlist = "* Advanced Circuit Netlist\n\n";
     circuit.components.forEach(comp => {
         const node1 = terminalToNodeName[`${comp.id}_t1`] || `${comp.id}_t1_unconnected`;
         const node2 = terminalToNodeName[`${comp.id}_t2`] || `${comp.id}_t2_unconnected`;
+        const node3 = terminalToNodeName[`${comp.id}_t3`] || `${comp.id}_t3_unconnected`;
+        
         switch (comp.type) {
-            case 'Resistor': netlist += `${comp.id} ${node1} ${node2} ${comp.value}\n`; break;
-            case 'Capacitor': netlist += `${comp.id} ${node1} ${node2} ${comp.value}\n`; break;
-            case 'Inductor': netlist += `${comp.id} ${node1} ${node2} ${comp.value}\n`; break;
-            case 'DC_Source': netlist += `${comp.id} ${node2} ${node1} DC ${comp.value}\n`; break;
+            case 'Resistor': 
+                netlist += `${comp.id} ${node1} ${node2} ${comp.value}\n`; 
+                break;
+            case 'Capacitor': 
+                netlist += `${comp.id} ${node1} ${node2} ${comp.value}\n`; 
+                break;
+            case 'Inductor': 
+                netlist += `${comp.id} ${node1} ${node2} ${comp.value}\n`; 
+                break;
+            case 'DC_Source': 
+                netlist += `${comp.id} ${node2} ${node1} DC ${comp.value}\n`; 
+                break;
+            case 'NMOS':
+                // NMOS format: M<name> <drain> <gate> <source> <bulk> <model-name>
+                netlist += `${comp.id} ${node1} ${node3} ${node2} ${node2} NMOS_MODEL\n`;
+                break;
+            case 'PMOS':
+                // PMOS format: M<name> <drain> <gate> <source> <bulk> <model-name>
+                netlist += `${comp.id} ${node1} ${node3} ${node2} ${node2} PMOS_MODEL\n`;
+                break;
         }
     });
+    
+    // 添加MOSFET模型定義
+    netlist += "\n";
+    netlist += ".MODEL NMOS_MODEL NMOS (VTO=1.0 KP=120U LAMBDA=0.01)\n";
+    netlist += ".MODEL PMOS_MODEL PMOS (VTO=-1.0 KP=40U LAMBDA=0.01)\n";
     netlist += "\n.OP\n.END\n";
     setLastGeneratedNodes(terminalToNodeName);
     return netlist;
@@ -100,9 +123,12 @@ function displayResults(results) {
     if (!results || !results.op || !results.op.voltages) return;
     const voltages = results.op.voltages;
     const displayedNodes = new Set();
+    
     Object.keys(circuit.components).forEach(idx => {
         const comp = circuit.components[idx];
-        ['t1', 't2'].forEach(termId => {
+        const terminals = comp.type === 'NMOS' || comp.type === 'PMOS' ? ['t1', 't2', 't3'] : ['t1', 't2'];
+        
+        terminals.forEach(termId => {
             const nodeName = (comp.id && termId) ? (comp.id + '_' + termId) : null;
             const mappedNode = nodeName ? (results.lastGeneratedNodes ? results.lastGeneratedNodes[nodeName] : null) : null;
             if (mappedNode && voltages[mappedNode] !== undefined && !displayedNodes.has(mappedNode)) {

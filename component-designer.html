@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>電路元件設計工具 - AkingCircuit</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft JhengHei', sans-serif;
+            background: #1e1e1e;
+            color: #ffffff;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* 左側工具面板 */
+        .toolbar {
+            width: 300px;
+            background: #252526;
+            border-right: 1px solid #3e3e3e;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .tool-section {
+            margin-bottom: 25px;
+        }
+
+        .tool-section h3 {
+            color: #00e6e6;
+            margin-bottom: 15px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .project-info {
+            background: #2d2d30;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #cccccc;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 8px;
+            background: #3c3c3c;
+            border: 1px solid #5a5a5a;
+            border-radius: 4px;
+            color: #ffffff;
+            font-size: 12px;
+        }
+
+        .form-group textarea {
+            height: 60px;
+            resize: vertical;
+        }
+
+        /* 繪圖工具 */
+        .drawing-tools {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .tool-btn {
+            background: #404040;
+            border: 1px solid #5a5a5a;
+            border-radius: 4px;
+            color: #ffffff;
+            padding: 12px 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-size: 11px;
+        }
+
+        .tool-btn:hover {
+            background: #505050;
+            border-color: #00e6e6;
+        }
+
+        .tool-btn.active {
+            background: #00e6e6;
+            color: #000000;
+            border-color: #00e6e6;
+        }
+
+        /* 端子管理 */
+        .terminals-list {
+            max-height: 150px;
+            overflow-y: auto;
+            background: #2d2d30;
+            border-radius: 4px;
+            padding: 10px;
+        }
+
+        .terminal-item {
+            background: #3c3c3c;
+            padding: 8px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .terminal-item:last-child {
+            margin-bottom: 0;
+        }
+
+        /* 屬性面板 */
+        .properties-panel {
+            background: #2d2d30;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        /* 中央畫布區域 */
+        .canvas-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #1e1e1e;
+        }
+
+        .canvas-toolbar {
+            background: #2d2d30;
+            padding: 10px 20px;
+            border-bottom: 1px solid #3e3e3e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .canvas-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .canvas-btn {
+            background: #404040;
+            border: 1px solid #5a5a5a;
+            border-radius: 4px;
+            color: #ffffff;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .canvas-btn:hover {
+            background: #505050;
+            border-color: #00e6e6;
+        }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .canvas-wrapper {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: 
+                linear-gradient(to right, #333 1px, transparent 1px),
+                linear-gradient(to bottom, #333 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        #design-canvas {
+            position: absolute;
+            cursor: crosshair;
+            z-index: 10;
+            top: 0;
+            left: 0;
+        }
+
+        /* 右側輸出面板 */
+        .output-panel {
+            width: 350px;
+            background: #252526;
+            border-left: 1px solid #3e3e3e;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .output-tabs {
+            display: flex;
+            background: #2d2d30;
+        }
+
+        .output-tab {
+            flex: 1;
+            padding: 12px;
+            background: #404040;
+            border: none;
+            color: #ffffff;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            font-size: 12px;
+        }
+
+        .output-tab.active {
+            background: #252526;
+            border-bottom-color: #00e6e6;
+        }
+
+        .output-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .code-output {
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 11px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border: 1px solid #3e3e3e;
+            margin-bottom: 15px;
+        }
+
+        /* 終端點樣式 */
+        .terminal-point {
+            fill: #00e6e6;
+            stroke: #ffffff;
+            stroke-width: 1;
+            cursor: pointer;
+        }
+
+        .terminal-point:hover {
+            fill: #ffffff;
+            stroke: #00e6e6;
+            stroke-width: 2;
+        }
+
+        /* 響應式設計 */
+        @media (max-width: 1200px) {
+            .toolbar {
+                width: 250px;
+            }
+            .output-panel {
+                width: 300px;
+            }
+        }
+
+        /* 滾動條樣式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #2d2d30;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #5a5a5a;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6a6a6a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 左側工具面板 -->
+        <div class="toolbar">
+            <!-- 專案資訊 -->
+            <div class="project-info">
+                <h3>專案資訊</h3>
+                <div class="form-group">
+                    <label>元件名稱</label>
+                    <input type="text" id="component-name" value="新元件" />
+                </div>
+                <div class="form-group">
+                    <label>元件類型</label>
+                    <select id="component-type">
+                        <option value="passive">被動元件</option>
+                        <option value="active">主動元件</option>
+                        <option value="source">電源元件</option>
+                        <option value="complex">複雜元件</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>分類</label>
+                    <input type="text" id="component-category" placeholder="resistor, mosfet, opamp..." />
+                </div>
+                <div class="form-group">
+                    <label>描述</label>
+                    <textarea id="component-description" placeholder="元件功能描述..."></textarea>
+                </div>
+            </div>
+
+            <!-- 繪圖工具 -->
+            <div class="tool-section">
+                <h3>繪圖工具</h3>
+                <div class="drawing-tools">
+                    <button class="tool-btn active" data-tool="select">選擇</button>
+                    <button class="tool-btn" data-tool="line">直線</button>
+                    <button class="tool-btn" data-tool="rect">矩形</button>
+                    <button class="tool-btn" data-tool="circle">圓形</button>
+                    <button class="tool-btn" data-tool="ellipse">橢圓</button>
+                    <button class="tool-btn" data-tool="polygon">多邊形</button>
+                    <button class="tool-btn" data-tool="path">路徑</button>
+                    <button class="tool-btn" data-tool="text">文字</button>
+                    <button class="tool-btn" data-tool="terminal">端子</button>
+                </div>
+            </div>
+
+            <!-- 端子管理 -->
+            <div class="tool-section">
+                <h3>端子管理</h3>
+                <div class="terminals-list" id="terminals-list">
+                    <!-- 端子列表將動態生成 -->
+                </div>
+                <button class="canvas-btn" style="width: 100%; margin-top: 10px;" onclick="addTerminal()">+ 新增端子</button>
+            </div>
+
+            <!-- 元件屬性 -->
+            <div class="tool-section">
+                <h3>元件屬性</h3>
+                <div class="properties-panel">
+                    <div class="form-group">
+                        <label>預設值</label>
+                        <input type="text" id="default-value" placeholder="1000" />
+                    </div>
+                    <div class="form-group">
+                        <label>單位</label>
+                        <input type="text" id="unit" placeholder="Ω, F, H, V, A..." />
+                    </div>
+                    <div class="form-group">
+                        <label>數值範圍 (最小)</label>
+                        <input type="number" id="min-value" step="any" />
+                    </div>
+                    <div class="form-group">
+                        <label>數值範圍 (最大)</label>
+                        <input type="number" id="max-value" step="any" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中央畫布區域 -->
+        <div class="canvas-area">
+            <div class="canvas-toolbar">
+                <div class="canvas-controls">
+                    <button class="canvas-btn" onclick="clearCanvas()">清除畫布</button>
+                    <button class="canvas-btn" onclick="toggleGrid()">切換網格</button>
+                    <button class="canvas-btn" onclick="centerView()">置中檢視</button>
+                    <span style="margin-left: 20px; color: #cccccc; font-size: 12px;">
+                        網格: 20px | 座標: <span id="cursor-pos">0, 0</span> | 
+                        <span id="tool-status" style="color: #00e6e6;">選擇工具</span>
+                    </span>
+                </div>
+                <div class="canvas-controls">
+                    <button class="canvas-btn" onclick="undo()">復原</button>
+                    <button class="canvas-btn" onclick="redo()">重做</button>
+                </div>
+            </div>
+            <div class="canvas-container">
+                <div class="canvas-wrapper" id="canvas-wrapper">
+                    <svg id="design-canvas" width="800" height="600">
+                        <!-- SVG元素將動態生成 -->
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側輸出面板 -->
+        <div class="output-panel">
+            <div class="output-tabs">
+                <button class="output-tab active" data-tab="preview">預覽</button>
+                <button class="output-tab" data-tab="svg">SVG</button>
+                <button class="output-tab" data-tab="json">JSON</button>
+                <button class="output-tab" data-tab="js">JavaScript</button>
+            </div>
+            <div class="output-content">
+                <div id="tab-preview" class="tab-content">
+                    <h4 style="color: #00e6e6; margin-bottom: 15px;">元件預覽</h4>
+                    <div style="background: #2d2d30; padding: 20px; border-radius: 4px; text-align: center;">
+                        <svg id="preview-svg" width="200" height="150" style="border: 1px solid #5a5a5a;">
+                            <!-- 預覽SVG -->
+                        </svg>
+                    </div>
+                    <button class="canvas-btn" style="width: 100%; margin-top: 15px;" onclick="exportComponent()">匯出元件</button>
+                </div>
+                
+                <div id="tab-svg" class="tab-content" style="display: none;">
+                    <h4 style="color: #00e6e6; margin-bottom: 15px;">SVG 代碼</h4>
+                    <div class="code-output" id="svg-output"></div>
+                    <button class="canvas-btn" onclick="copySVG()">複製 SVG</button>
+                </div>
+                
+                <div id="tab-json" class="tab-content" style="display: none;">
+                    <h4 style="color: #00e6e6; margin-bottom: 15px;">JSON 定義</h4>
+                    <div class="code-output" id="json-output"></div>
+                    <button class="canvas-btn" onclick="copyJSON()">複製 JSON</button>
+                </div>
+                
+                <div id="tab-js" class="tab-content" style="display: none;">
+                    <h4 style="color: #00e6e6; margin-bottom: 15px;">JavaScript 代碼</h4>
+                    <div class="code-output" id="js-output"></div>
+                    <button class="canvas-btn" onclick="copyJS()">複製代碼</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="component-designer.js"></script>
+</body>
+</html>

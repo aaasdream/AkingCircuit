@@ -28,7 +28,7 @@ export let state = {
 };
 
 // 用於產生元件唯一ID的計數器
-export let elementCounter = { R: 0, C: 0, L: 0, V: 0 };
+export let elementCounter = { R: 0, C: 0, L: 0, V: 0, M: 0 };
 
 // 儲存最後一次生成網表時的節點，用於結果顯示
 export let lastGeneratedNodes = {};

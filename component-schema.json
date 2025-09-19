@@ -1,0 +1,199 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "電路元件定義格式",
+  "description": "用於電路模擬器的標準化元件定義",
+  "type": "object",
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "元件名稱"
+        },
+        "type": {
+          "type": "string", 
+          "enum": ["passive", "active", "source", "complex"],
+          "description": "元件類型分類"
+        },
+        "category": {
+          "type": "string",
+          "description": "元件分類 (如: resistor, mosfet, opamp)"
+        },
+        "description": {
+          "type": "string",
+          "description": "元件描述"
+        },
+        "version": {
+          "type": "string",
+          "description": "版本號"
+        },
+        "author": {
+          "type": "string", 
+          "description": "設計者"
+        }
+      },
+      "required": ["name", "type", "category"]
+    },
+    
+    "geometry": {
+      "type": "object",
+      "properties": {
+        "gridSize": {
+          "type": "number",
+          "description": "基礎網格尺寸 (預設20)",
+          "default": 20
+        },
+        "boundingBox": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number",
+              "description": "元件寬度 (gridSize倍數)"
+            },
+            "height": {
+              "type": "number", 
+              "description": "元件高度 (gridSize倍數)"
+            }
+          },
+          "required": ["width", "height"]
+        },
+        "centerPoint": {
+          "type": "object",
+          "properties": {
+            "x": {"type": "number", "default": 0},
+            "y": {"type": "number", "default": 0}
+          },
+          "description": "元件中心點 (通常為原點)"
+        }
+      },
+      "required": ["boundingBox"]
+    },
+    
+    "terminals": {
+      "type": "array",
+      "description": "端子定義陣列",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "端子名稱 (如: gate, drain, source, t1, t2)"
+          },
+          "displayName": {
+            "type": "string", 
+            "description": "顯示名稱 (如: G, D, S, +, -)"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": {"type": "number"},
+              "y": {"type": "number"}
+            },
+            "required": ["x", "y"],
+            "description": "相對於中心點的位置 (gridSize倍數)"
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["input", "output", "bidirectional"],
+            "description": "端子方向性"
+          },
+          "electricalType": {
+            "type": "string",
+            "enum": ["signal", "power", "ground"],
+            "description": "電氣類型"
+          }
+        },
+        "required": ["name", "position"]
+      },
+      "minItems": 1
+    },
+    
+    "svg": {
+      "type": "object",
+      "properties": {
+        "template": {
+          "type": "string",
+          "description": "SVG模板字符串，使用${變數}進行參數化"
+        },
+        "parameters": {
+          "type": "object",
+          "description": "SVG模板中使用的參數",
+          "patternProperties": {
+            "^[a-zA-Z_][a-zA-Z0-9_]*$": {
+              "type": ["string", "number"]
+            }
+          }
+        },
+        "styles": {
+          "type": "object",
+          "properties": {
+            "strokeWidth": {"type": "number", "default": 1},
+            "strokeColor": {"type": "string", "default": "currentColor"},
+            "fillColor": {"type": "string", "default": "none"},
+            "fontSize": {"type": "number", "default": 12}
+          }
+        }
+      },
+      "required": ["template"]
+    },
+    
+    "properties": {
+      "type": "object", 
+      "description": "元件電氣特性",
+      "properties": {
+        "defaultValue": {
+          "type": ["string", "number"],
+          "description": "預設數值"
+        },
+        "unit": {
+          "type": "string",
+          "description": "單位 (如: Ω, F, H, V, A)"
+        },
+        "valueRange": {
+          "type": "object",
+          "properties": {
+            "min": {"type": "number"},
+            "max": {"type": "number"}
+          }
+        },
+        "tolerance": {
+          "type": "number",
+          "description": "容差百分比"
+        },
+        "ratingVoltage": {
+          "type": "number",
+          "description": "額定電壓"
+        },
+        "ratingCurrent": {
+          "type": "number", 
+          "description": "額定電流"
+        },
+        "customProperties": {
+          "type": "object",
+          "description": "自定義屬性"
+        }
+      }
+    },
+    
+    "spice": {
+      "type": "object",
+      "description": "SPICE模擬參數 (可選)",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "SPICE模型名稱"
+        },
+        "netlistTemplate": {
+          "type": "string", 
+          "description": "網表模板"
+        },
+        "parameters": {
+          "type": "object",
+          "description": "SPICE參數"
+        }
+      }
+    }
+  },
+  "required": ["metadata", "geometry", "terminals", "svg"]
+}

@@ -40,8 +40,21 @@ body, html {
 .ghost { opacity: 0.6; pointer-events: none; }
 .ghost * { stroke: #00e6e6; fill: #333; }
 
-/* 連接點樣式 (新增) */
+/* 連接點樣式 (改進版) */
 .junction-dot {
     fill: #ff9800; /* 與線條顏色相同 */
-    stroke: none;
+    stroke: #333; /* 添加深色邊框讓圓點更明顯 */
+    stroke-width: 1;
+}
+
+.terminal-connection {
+    fill: #00e6e6; /* 端點連接使用元件顏色 */
+    stroke: #333;
+    stroke-width: 1;
+}
+
+.wire-intersection {
+    fill: #ffeb3b; /* 線路交叉點使用亮黃色 */
+    stroke: #333;
+    stroke-width: 1;
 }

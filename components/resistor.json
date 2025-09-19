@@ -1,0 +1,64 @@
+{
+  "metadata": {
+    "name": "電阻器",
+    "type": "passive",
+    "category": "resistor", 
+    "description": "標準電阻元件",
+    "version": "1.0",
+    "author": "AkingCircuit"
+  },
+  
+  "geometry": {
+    "gridSize": 20,
+    "boundingBox": {
+      "width": 4,
+      "height": 2
+    },
+    "centerPoint": {"x": 0, "y": 0}
+  },
+  
+  "terminals": [
+    {
+      "name": "t1",
+      "displayName": "1", 
+      "position": {"x": -2, "y": 0},
+      "direction": "bidirectional",
+      "electricalType": "signal"
+    },
+    {
+      "name": "t2",
+      "displayName": "2",
+      "position": {"x": 2, "y": 0}, 
+      "direction": "bidirectional",
+      "electricalType": "signal"
+    }
+  ],
+  
+  "svg": {
+    "template": "<line x1=\"${-gridSize*2}\" y1=\"0\" x2=\"${-gridSize}\" y2=\"0\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line><rect x=\"${-gridSize}\" y=\"${-gridSize/2}\" width=\"${gridSize*2}\" height=\"${gridSize}\" fill=\"${fillColor}\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></rect><line x1=\"${gridSize}\" y1=\"0\" x2=\"${gridSize*2}\" y2=\"0\" stroke=\"${strokeColor}\" stroke-width=\"${strokeWidth}\"></line>",
+    "parameters": {
+      "gridSize": 20
+    },
+    "styles": {
+      "strokeWidth": 1,
+      "strokeColor": "currentColor", 
+      "fillColor": "none"
+    }
+  },
+  
+  "properties": {
+    "defaultValue": 1000,
+    "unit": "Ω",
+    "valueRange": {
+      "min": 0.1,
+      "max": 1000000000
+    },
+    "tolerance": 5
+  },
+  
+  "spice": {
+    "model": "R",
+    "netlistTemplate": "R${id} ${terminals.t1} ${terminals.t2} ${value}",
+    "parameters": {}
+  }
+}

@@ -288,10 +288,96 @@ function finalizeCurrentWire() {
         id: `w${circuit.wires.length + 1}`,
         points: cleanedPoints,
     };
+    
+    // 在添加新線之前，檢查與現有線路的交叉點
+    processWireIntersections(newWire);
+    
     circuit.wires.push(newWire);
     state.currentWirePoints = [];
     if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
     render();
+}
+
+// 新增函數：處理線路交叉點
+function processWireIntersections(newWire) {
+    // 對新線路的每個線段，檢查與現有線路的交叉
+    for (let i = 0; i < newWire.points.length - 1; i++) {
+        const p1 = newWire.points[i];
+        const p2 = newWire.points[i + 1];
+        const insertions = [];
+        
+        circuit.wires.forEach(existingWire => {
+            for (let j = 0; j < existingWire.points.length - 1; j++) {
+                const ep1 = existingWire.points[j];
+                const ep2 = existingWire.points[j + 1];
+                
+                const intersection = findWireIntersection(p1, p2, ep1, ep2);
+                if (intersection) {
+                    // 檢查交叉點是否已存在於新線中
+                    const pointExists = newWire.points.some(p => 
+                        p.x === intersection.x && p.y === intersection.y
+                    );
+                    if (!pointExists) {
+                        insertions.push({
+                            index: i + 1,
+                            point: intersection
+                        });
+                    }
+                    
+                    // 也要檢查現有線路是否需要添加交叉點
+                    const existingPointExists = existingWire.points.some(p => 
+                        p.x === intersection.x && p.y === intersection.y
+                    );
+                    if (!existingPointExists) {
+                        existingWire.points.splice(j + 1, 0, intersection);
+                    }
+                }
+            }
+        });
+        
+        // 按索引倒序插入，避免索引偏移
+        insertions.sort((a, b) => b.index - a.index);
+        insertions.forEach(ins => {
+            newWire.points.splice(ins.index, 0, ins.point);
+        });
+    }
+}
+
+// 輔助函數：找到兩個線段的交點
+function findWireIntersection(a1, a2, b1, b2) {
+    // 檢查一條是水平線，另一條是垂直線
+    const aIsHorizontal = a1.y === a2.y;
+    const aIsVertical = a1.x === a2.x;
+    const bIsHorizontal = b1.y === b2.y;
+    const bIsVertical = b1.x === b2.x;
+    
+    if ((aIsHorizontal && bIsVertical) || (aIsVertical && bIsHorizontal)) {
+        let hLine, vLine;
+        
+        if (aIsHorizontal && bIsVertical) {
+            hLine = { start: a1, end: a2 };
+            vLine = { start: b1, end: b2 };
+        } else {
+            hLine = { start: b1, end: b2 };
+            vLine = { start: a1, end: a2 };
+        }
+        
+        // 檢查是否真的相交
+        const hMinX = Math.min(hLine.start.x, hLine.end.x);
+        const hMaxX = Math.max(hLine.start.x, hLine.end.x);
+        const vMinY = Math.min(vLine.start.y, vLine.end.y);
+        const vMaxY = Math.max(vLine.start.y, vLine.end.y);
+        
+        if (vLine.start.x >= hMinX && vLine.start.x <= hMaxX &&
+            hLine.start.y >= vMinY && hLine.start.y <= vMaxY) {
+            return {
+                x: vLine.start.x,
+                y: hLine.start.y
+            };
+        }
+    }
+    
+    return null;
 }
 
 function onMouseUp(e) {
