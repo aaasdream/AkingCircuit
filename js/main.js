@@ -1,9 +1,7 @@
 import { svg, state, gridSize } from './state.js';
 import { createGridPattern, updateViewBox, render } from './canvas.js';
-import { initializeEventListeners } from './events.js';
+import { setupEventListeners } from './events.js';
 import { updateButtonStates, updatePropertiesPanel } from './ui.js';
-// Import wiring functions explicitly to ensure they're properly loaded
-import { startWiring, addManualWirePoint, finishWiring, cancelWiring } from './wiring.js';
 
 function init() {
     // 初始化視窗大小
@@ -32,7 +30,7 @@ function init() {
         window.setMode('WIRING');
     });
     
-    initializeEventListeners();
+    setupEventListeners();
     
     // 設置初始模式
     state.mode = 'IDLE'; // or 'SELECT'
