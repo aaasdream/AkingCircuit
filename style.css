@@ -33,7 +33,16 @@ body, html {
 .component.selected { stroke: #ffeb3b; cursor: move; }
 .component-terminal { fill: #00e6e6; cursor: crosshair; transition: fill 0.2s; }
 .component-terminal:hover { fill: #ffeb3b; }
-.wire { stroke: #ff9800; stroke-width: 2; fill: none; pointer-events: none; }
+.wire { 
+    stroke: #ff9800; 
+    stroke-width: 3; /* 稍微加粗一點，方便點選 */
+    fill: none; 
+    pointer-events: stroke; /* 讓滑鼠可以捕捉到線條的點擊事件 */
+    cursor: pointer;
+}
+.wire:hover {
+    stroke-width: 5;
+}
 .simulation-text { font-size: 14px; fill: #66ff66; font-family: monospace; text-anchor: middle; pointer-events: none; }
 
 /* 幽靈元件樣式 */
@@ -44,4 +53,12 @@ body, html {
 .junction-dot {
     fill: #ff9800; /* 與線條顏色相同 */
     stroke: none;
+}
+
+/* 導線轉折點控制點樣式 (新增) */
+.wire-vertex-handle {
+    fill: #ff9800; /* 橘色 */
+    stroke: #ffffff; /* 白色邊框，使其更顯眼 */
+    stroke-width: 1;
+    cursor: move; /* 顯示為可移動的指標 */
 }

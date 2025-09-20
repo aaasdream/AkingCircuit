@@ -13,6 +13,7 @@ function setMode(newMode, options = {}) {
     state.mode = newMode;
     state.placingType = options.placingType || null;
     state.selectedComponentIds = [];
+    state.selectedWireIds = []; // << 新增：切換模式時取消選取導線
     state.ghostRotation = 0;
     state.currentWirePoints = [];
     state.wireDirection = 'UNDETERMINED';
@@ -114,10 +115,27 @@ function onMouseDown(e) {
 
     } else if (state.mode === 'SELECT') {
         const { x, y } = getSvgCoords(e);
-        const clickedElement = e.target.closest('.component');
-        const clickedId = clickedElement ? clickedElement.dataset.id : null;
         
-        if (clickedId && state.selectedComponentIds.includes(clickedId)) {
+        // 【新增】檢查是否點擊在導線的轉折點控制項上
+        const clickedVertexHandle = e.target.closest('.wire-vertex-handle');
+        if (clickedVertexHandle) {
+            e.stopPropagation(); // 防止觸發下方的其他點擊事件
+            state.draggingVertexInfo = {
+                wireId: clickedVertexHandle.dataset.wireId,
+                pointIndex: parseInt(clickedVertexHandle.dataset.pointIndex, 10)
+            };
+            return;
+        }
+
+        const clickedComponent = e.target.closest('.component');
+        const clickedComponentId = clickedComponent ? clickedComponent.dataset.id : null;
+        
+        // 【新增】檢查是否點擊在導線上
+        const clickedWire = e.target.closest('.wire');
+        const clickedWireId = clickedWire ? clickedWire.dataset.id : null;
+
+        // 如果點擊到已選中的元件，準備拖曳
+        if (clickedComponentId && state.selectedComponentIds.includes(clickedComponentId)) {
             state.isDragging = true;
             state.dragStart = { x, y };
             state.componentDragStartPositions.clear();
@@ -128,15 +146,24 @@ function onMouseDown(e) {
             return;
         }
 
+        // 處理 Shift 多選
         if (e.shiftKey) {
-            if (clickedId) {
-                const index = state.selectedComponentIds.indexOf(clickedId);
+            if (clickedComponentId) {
+                const index = state.selectedComponentIds.indexOf(clickedComponentId);
                 if (index > -1) state.selectedComponentIds.splice(index, 1);
-                else state.selectedComponentIds.push(clickedId);
+                else state.selectedComponentIds.push(clickedComponentId);
+            }
+            if (clickedWireId) {
+                const index = state.selectedWireIds.indexOf(clickedWireId);
+                if (index > -1) state.selectedWireIds.splice(index, 1);
+                else state.selectedWireIds.push(clickedWireId);
             }
         } else {
-            state.selectedComponentIds = clickedId ? [clickedId] : [];
+            // 一般單選
+            state.selectedComponentIds = clickedComponentId ? [clickedComponentId] : [];
+            state.selectedWireIds = clickedWireId ? [clickedWireId] : [];
         }
+
         updatePropertiesPanel();
         render();
     }
@@ -153,6 +180,48 @@ function onMouseMove(e) {
     }
 
     const { x, y } = getSvgCoords(e);
+    
+    // 【新增】處理拖曳導線轉折點的邏輯
+    if (state.draggingVertexInfo) {
+        const { wireId, pointIndex } = state.draggingVertexInfo;
+        const wire = circuit.wires.find(w => w.id === wireId);
+        if (!wire) return;
+
+        const points = wire.points;
+        const p_curr = points[pointIndex];
+        const snappedX = snapToGrid(x, gridSize);
+        const snappedY = snapToGrid(y, gridSize);
+
+        if (p_curr.x === snappedX && p_curr.y === snappedY) return; // 避免不必要的重複渲染
+
+        // 更新當前點的座標
+        p_curr.x = snappedX;
+        p_curr.y = snappedY;
+        
+        // 為了保持線條的正交性，需要同時更新相鄰點的座標
+        const p_prev = points[pointIndex - 1];
+        const p_next = points[pointIndex + 1];
+
+        // 判斷前一段是水平還是垂直，並更新對應的座標
+        // 假設 p_prev 和 p_next 存在 (因為我們只拖曳中間點)
+        if (p_prev.y === p_next.y) { // 如果前後兩點在同一水平線上 (不太可能，但作為防禦)
+             p_prev.y = snappedY;
+             p_next.x = snappedX;
+        } else if (p_prev.x === p_next.x) { // 如果前後兩點在同一垂直線上 (不太可能)
+             p_prev.y = snappedY;
+             p_next.x = snappedX;
+        } else {
+            // 最常見的情況：一個 L 型的轉角
+            // 我們假設前一段是水平，後一段是垂直，或反之
+            // 移動轉折點時，我們讓前一段的 Y 向它對齊，後一段的 X 向它對齊
+            p_prev.y = snappedY;
+            p_next.x = snappedX;
+        }
+
+        render();
+        return;
+    }
+
 
     if (state.isDragging) {
         const dx = x - state.dragStart.x, dy = y - state.dragStart.y;
@@ -308,6 +377,13 @@ function onMouseUp(e) {
         const cursors = { 'SELECT': 'default', 'WIRING': 'crosshair', 'PLACING': 'crosshair' };
         svg.style.cursor = cursors[state.mode] || 'default';
     }
+
+    // 【新增】結束拖曳導線轉折點
+    if (state.draggingVertexInfo) {
+        state.draggingVertexInfo = null;
+        render(); // 重新渲染以簡化可能產生的共線點
+    }
+    
     if (state.isDragging) {
         state.isDragging = false;
         state.selectedComponentIds.forEach(id => {

@@ -264,9 +264,35 @@ export function render() {
         const polyline = document.createElementNS(svgNS, 'polyline');
         polyline.setAttribute('points', pointsToSvgPath(wire.points));
         polyline.classList.add('wire');
+        if (state.selectedWireIds.includes(wire.id)) {
+            polyline.style.stroke = '#00FFFF'; // 高亮選中的導線 (青色)
+        }
         polyline.dataset.id = wire.id;
         svg.appendChild(polyline);
     });
+    
+    // 【新增】渲染選中導線的控制點
+    state.selectedWireIds.forEach(wireId => {
+        const wire = circuit.wires.find(w => w.id === wireId);
+        if (!wire) return;
+        
+        wire.points.forEach((p, index) => {
+            // 我們只為中間的轉折點增加控制方塊
+            if (index > 0 && index < wire.points.length - 1) {
+                const handleSize = 8;
+                const rect = document.createElementNS(svgNS, 'rect');
+                rect.setAttribute('x', p.x - handleSize / 2);
+                rect.setAttribute('y', p.y - handleSize / 2);
+                rect.setAttribute('width', handleSize);
+                rect.setAttribute('height', handleSize);
+                rect.classList.add('wire-vertex-handle');
+                rect.dataset.wireId = wireId;
+                rect.dataset.pointIndex = index;
+                svg.appendChild(rect);
+            }
+        });
+    });
+
 
     // 渲染元件
     circuit.components.forEach(comp => {

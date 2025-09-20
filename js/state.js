@@ -24,6 +24,8 @@ export let state = {
     // 移除 wireStartTerminal，改為追蹤當前路徑
     currentWirePoints: [], // 新增：正在繪製的線路點集
     selectedComponentIds: [],
+    selectedWireIds: [], // << 新增：用於儲存被選取的導線ID
+    draggingVertexInfo: null, // << 新增：儲存拖曳中的節點資訊 { wireId, pointIndex }
     wireDirection: 'UNDETERMINED', // << 新增：用於決定佈線方向
 };
 
