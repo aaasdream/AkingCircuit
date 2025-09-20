@@ -151,52 +151,55 @@ export function render() {
         }
     });
 
-    // 步驟 1.5: 創建「穿透式」連接
-    const allTerminals = [];
-    circuit.components.forEach(comp => {
-        Object.keys(comp.terminals).forEach(termId => {
-            allTerminals.push({
-                ...comp.terminals[termId],
-                componentId: comp.id,
-                terminalId: termId
+    // 【修改處】步驟 1.5: 創建「穿透式」連接
+    // 增加一個條件判斷 !state.isDragging，確保這個耗效能且會改變連接關係的操作只在非拖曳狀態下執行
+    if (!state.isDragging) {
+        const allTerminals = [];
+        circuit.components.forEach(comp => {
+            Object.keys(comp.terminals).forEach(termId => {
+                allTerminals.push({
+                    ...comp.terminals[termId],
+                    componentId: comp.id,
+                    terminalId: termId
+                });
             });
         });
-    });
 
-    circuit.wires.forEach(wire => {
-        const insertions = [];
-        for (let i = 0; i < wire.points.length - 1; i++) {
-            const p1 = wire.points[i];
-            const p2 = wire.points[i + 1];
+        circuit.wires.forEach(wire => {
+            const insertions = [];
+            for (let i = 0; i < wire.points.length - 1; i++) {
+                const p1 = wire.points[i];
+                const p2 = wire.points[i + 1];
 
-            allTerminals.forEach(term => {
-                // 檢查端點是否在 p1 和 p2 構成的線段上 (僅限直線)
-                const termIsOnSegment = 
-                    (Math.abs(p1.x - term.x) + Math.abs(p2.x - term.x) === Math.abs(p1.x - p2.x)) &&
-                    (Math.abs(p1.y - term.y) + Math.abs(p2.y - term.y) === Math.abs(p1.y - p2.y));
+                allTerminals.forEach(term => {
+                    // 檢查端點是否在 p1 和 p2 構成的線段上 (僅限直線)
+                    const termIsOnSegment = 
+                        (Math.abs(p1.x - term.x) + Math.abs(p2.x - term.x) === Math.abs(p1.x - p2.x)) &&
+                        (Math.abs(p1.y - term.y) + Math.abs(p2.y - term.y) === Math.abs(p1.y - p2.y));
 
-                if (termIsOnSegment) {
-                    const pointExists = wire.points.some(p => p.x === term.x && p.y === term.y);
-                    if (!pointExists) {
-                        insertions.push({
-                            index: i + 1,
-                            point: {
-                                x: term.x,
-                                y: term.y,
-                                terminal: { componentId: term.componentId, terminalId: term.terminalId }
-                            }
-                        });
+                    if (termIsOnSegment) {
+                        const pointExists = wire.points.some(p => p.x === term.x && p.y === term.y);
+                        if (!pointExists) {
+                            insertions.push({
+                                index: i + 1,
+                                point: {
+                                    x: term.x,
+                                    y: term.y,
+                                    terminal: { componentId: term.componentId, terminalId: term.terminalId }
+                                }
+                            });
+                        }
                     }
-                }
-            });
-        }
-        
-        if (insertions.length > 0) {
-            insertions.sort((a, b) => b.index - a.index).forEach(ins => {
-                wire.points.splice(ins.index, 0, ins.point);
-            });
-        }
-    });
+                });
+            }
+            
+            if (insertions.length > 0) {
+                insertions.sort((a, b) => b.index - a.index).forEach(ins => {
+                    wire.points.splice(ins.index, 0, ins.point);
+                });
+            }
+        });
+    }
 
     // 步驟 2: 正交性修復 - 處理因元件移動導致的線路變形
     circuit.wires.forEach(wire => {
