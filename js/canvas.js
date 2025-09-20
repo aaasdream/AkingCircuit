@@ -44,6 +44,31 @@ function pointsToSvgPath(points) {
 }
 
 /**
+ * 【新增的輔助函式】
+ * 更新導線的端點，使其「吸附」到所連接的元件端點上。
+ * @param {object} wire - 要處理的導線物件。
+ */
+function snapWireEndpoints(wire) {
+    const snapPoint = (point) => {
+        if (point && point.terminal) {
+            const component = circuit.components.find(c => c.id === point.terminal.componentId);
+            if (component) {
+                const terminalPos = component.terminals[point.terminal.terminalId];
+                // 直接更新點物件的座標
+                point.x = terminalPos.x;
+                point.y = terminalPos.y;
+            }
+        }
+    };
+
+    // 處理導線的起始點
+    snapPoint(wire.points[0]);
+    // 處理導線的結束點
+    snapPoint(wire.points[wire.points.length - 1]);
+}
+
+
+/**
  * 簡化導線，移除共線的多餘點。
  * @param {object} wire - 要簡化的導線物件。
  */
@@ -129,30 +154,11 @@ export function isPathColliding(points, ignoreComponentIds = []) {
 export function render() {
     // --- 預渲染階段：在繪製前更新導線的幾何結構 ---
 
-    // 步驟 1: 端點吸附 - 更新連接到元件的導線端點
-    circuit.wires.forEach(wire => {
-        const startPoint = wire.points[0];
-        if (startPoint.terminal) {
-            const component = circuit.components.find(c => c.id === startPoint.terminal.componentId);
-            if (component) {
-                const terminalPos = component.terminals[startPoint.terminal.terminalId];
-                startPoint.x = terminalPos.x;
-                startPoint.y = terminalPos.y;
-            }
-        }
-        const endPoint = wire.points[wire.points.length - 1];
-        if (endPoint.terminal) {
-            const component = circuit.components.find(c => c.id === endPoint.terminal.componentId);
-            if (component) {
-                const terminalPos = component.terminals[endPoint.terminal.terminalId];
-                endPoint.x = terminalPos.x;
-                endPoint.y = terminalPos.y;
-            }
-        }
-    });
+    // 【修改處】步驟 1: 端點吸附 - 確保所有導線的端點都與其所連接的元件保持同步
+    circuit.wires.forEach(snapWireEndpoints);
 
-    // 【修改處】步驟 1.5: 創建「穿透式」連接
-    // 增加一個條件判斷 !state.isDragging，確保這個耗效能且會改變連接關係的操作只在非拖曳狀態下執行
+
+    // 步驟 1.5: 創建「穿透式」連接
     if (!state.isDragging) {
         const allTerminals = [];
         circuit.components.forEach(comp => {
@@ -172,7 +178,6 @@ export function render() {
                 const p2 = wire.points[i + 1];
 
                 allTerminals.forEach(term => {
-                    // 檢查端點是否在 p1 和 p2 構成的線段上 (僅限直線)
                     const termIsOnSegment = 
                         (Math.abs(p1.x - term.x) + Math.abs(p2.x - term.x) === Math.abs(p1.x - p2.x)) &&
                         (Math.abs(p1.y - term.y) + Math.abs(p2.y - term.y) === Math.abs(p1.y - p2.y));

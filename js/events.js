@@ -284,10 +284,18 @@ function finalizeCurrentWire() {
         return acc;
     }, []);
 
+    // 【修復】確保結束點的 terminal 資訊被保留
+    const lastOriginalPoint = state.currentWirePoints[state.currentWirePoints.length - 1];
+    const lastCleanedPoint = cleanedPoints[cleanedPoints.length - 1];
+    if (lastOriginalPoint.terminal && lastCleanedPoint) {
+        lastCleanedPoint.terminal = lastOriginalPoint.terminal;
+    }
+
     const newWire = {
         id: `w${circuit.wires.length + 1}`,
         points: cleanedPoints,
     };
+
     circuit.wires.push(newWire);
     state.currentWirePoints = [];
     if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
