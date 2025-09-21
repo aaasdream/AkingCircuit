@@ -6,7 +6,6 @@ export const gridSize = 20;
 // 應用程式核心數據
 export let circuit = {
     components: [],
-    // Wire 數據結構升級：不再是 from/to，而是一個 points 陣列
     wires: [],
 };
 
@@ -21,16 +20,17 @@ export let state = {
     ghostRotation: 0,
     componentDragStartPositions: new Map(),
     viewBox: { x: 0, y: 0, w: 0, h: 0 },
-    // 移除 wireStartTerminal，改為追蹤當前路徑
-    currentWirePoints: [], // 新增：正在繪製的線路點集
+    currentWirePoints: [],
     selectedComponentIds: [],
-    selectedWireIds: [], // << 新增：用於儲存被選取的導線ID
-    draggingVertexInfo: null, // << 新增：儲存拖曳中的節點資訊 { wireId, pointIndex }
-    wireDirection: 'UNDETERMINED', // << 新增：用於決定佈線方向
+    selectedWireIds: [],
+    selectedNodeKey: null, // << 新增：儲存被選取節點的 'x,y' 鍵
+    draggingVertexInfo: null,
+    wireDirection: 'UNDETERMINED',
+    wireLastMovePoint: null, // 【新增】追蹤畫線時的滑鼠最後位置，用於智慧判斷正交方向
 };
 
 // 用於產生元件唯一ID的計數器
-export let elementCounter = { R: 0, C: 0, L: 0, V: 0 };
+export let elementCounter = { R: 0, C: 0, L: 0, V: 0, W: 0 };
 
 // 儲存最後一次生成網表時的節點，用於結果顯示
 export let lastGeneratedNodes = {};

@@ -1,4 +1,4 @@
- import { svg, svgNS, state, circuit, gridSize } from './state.js';
+import { svg, svgNS, state, circuit, gridSize } from './state.js';
 import { getComponentSVG } from './components.js';
 
 /**
@@ -44,7 +44,6 @@ function pointsToSvgPath(points) {
 }
 
 /**
- * 【新增的輔助函式】
  * 更新導線的端點，使其「吸附」到所連接的元件端點上。
  * @param {object} wire - 要處理的導線物件。
  */
@@ -54,25 +53,21 @@ function snapWireEndpoints(wire) {
             const component = circuit.components.find(c => c.id === point.terminal.componentId);
             if (component) {
                 const terminalPos = component.terminals[point.terminal.terminalId];
-                // 直接更新點物件的座標
                 point.x = terminalPos.x;
                 point.y = terminalPos.y;
             }
         }
     };
-
-    // 處理導線的起始點
     snapPoint(wire.points[0]);
-    // 處理導線的結束點
     snapPoint(wire.points[wire.points.length - 1]);
 }
-
 
 /**
  * 簡化導線，移除共線的多餘點。
  * @param {object} wire - 要簡化的導線物件。
+ * @param {Set<string>} [junctionPoints=new Set()] - 一個包含 'x,y' 格式的節點鍵集合，這些節點不應被簡化。
  */
-function simplifyWire(wire) {
+function simplifyWire(wire, junctionPoints = new Set()) {
     if (wire.points.length < 3) return;
 
     const simplifiedPoints = [wire.points[0]];
@@ -80,10 +75,14 @@ function simplifyWire(wire) {
         const p_prev = simplifiedPoints[simplifiedPoints.length - 1];
         const p_curr = wire.points[i];
         const p_next = wire.points[i + 1];
+        const pointKey = `${p_curr.x},${p_curr.y}`;
 
+        if (p_curr.isNode || junctionPoints.has(pointKey) || p_curr.terminal) {
+            simplifiedPoints.push(p_curr);
+            continue;
+        }
         const isCollinear = (p_prev.x === p_curr.x && p_curr.x === p_next.x) ||
                             (p_prev.y === p_curr.y && p_curr.y === p_next.y);
-
         if (!isCollinear) {
             simplifiedPoints.push(p_curr);
         }
@@ -103,14 +102,12 @@ function isRectCollidingWithComponents(rect, ignoreComponentIds = []) {
         if (ignoreComponentIds.includes(comp.id)) {
             continue;
         }
-
         const compRect = {
             x: comp.x - gridSize * 2,
             y: comp.y - gridSize * 1.5,
             width: gridSize * 4,
             height: gridSize * 3
         };
-
         if (rect.x < compRect.x + compRect.width &&
             rect.x + rect.width > compRect.x &&
             rect.y < compRect.y + compRect.height &&
@@ -129,7 +126,6 @@ function isRectCollidingWithComponents(rect, ignoreComponentIds = []) {
  */
 export function isPathColliding(points, ignoreComponentIds = []) {
     if (points.length < 2) return false;
-
     for (let i = 0; i < points.length - 1; i++) {
         const p1 = points[i];
         const p2 = points[i + 1];
@@ -140,7 +136,6 @@ export function isPathColliding(points, ignoreComponentIds = []) {
             width: Math.abs(p1.x - p2.x) + padding * 2,
             height: Math.abs(p1.y - p2.y) + padding * 2
         };
-
         if (isRectCollidingWithComponents(rect, ignoreComponentIds)) {
             return true;
         }
@@ -152,162 +147,102 @@ export function isPathColliding(points, ignoreComponentIds = []) {
  * 主渲染函數，負責重繪整個電路 SVG。
  */
 export function render() {
-    // --- 預渲染階段：在繪製前更新導線的幾何結構 ---
-
-    // 【修改處】步驟 1: 端點吸附 - 確保所有導線的端點都與其所連接的元件保持同步
+    // --- 預渲染階段 ---
     circuit.wires.forEach(snapWireEndpoints);
 
+    // 當拖動節點時，智慧調整相鄰點以保持正交
+    if (state.draggingVertexInfo) {
+        state.draggingVertexInfo.targets.forEach(target => {
+            const wire = circuit.wires.find(w => w.id === target.wireId);
+            if (!wire) return;
 
-    // 步驟 1.5: 創建「穿透式」連接
-    if (!state.isDragging) {
-        const allTerminals = [];
-        circuit.components.forEach(comp => {
-            Object.keys(comp.terminals).forEach(termId => {
-                allTerminals.push({
-                    ...comp.terminals[termId],
-                    componentId: comp.id,
-                    terminalId: termId
-                });
-            });
-        });
+            const points = wire.points;
+            const i = target.pointIndex;
+            const p_curr = points[i];
 
-        circuit.wires.forEach(wire => {
-            const insertions = [];
-            for (let i = 0; i < wire.points.length - 1; i++) {
-                const p1 = wire.points[i];
-                const p2 = wire.points[i + 1];
-
-                allTerminals.forEach(term => {
-                    const termIsOnSegment = 
-                        (Math.abs(p1.x - term.x) + Math.abs(p2.x - term.x) === Math.abs(p1.x - p2.x)) &&
-                        (Math.abs(p1.y - term.y) + Math.abs(p2.y - term.y) === Math.abs(p1.y - p2.y));
-
-                    if (termIsOnSegment) {
-                        const pointExists = wire.points.some(p => p.x === term.x && p.y === term.y);
-                        if (!pointExists) {
-                            insertions.push({
-                                index: i + 1,
-                                point: {
-                                    x: term.x,
-                                    y: term.y,
-                                    terminal: { componentId: term.componentId, terminalId: term.terminalId }
-                                }
-                            });
+            // 處理前一個點
+            if (i > 0) {
+                const p_prev = points[i - 1];
+                // 【修正】只有在相鄰點不是元件端點，也不是使用者定義的節點時，才自動調整它
+                if (!p_prev.terminal && !p_prev.isNode) { 
+                    if (i > 1) {
+                        const p_before_prev = points[i - 2];
+                        // 根據更前一段的方向，決定如何移動前一個點
+                        if (p_before_prev.x === p_prev.x) { // 前段是垂直的
+                            p_prev.y = p_curr.y; // 那麼這段必須是水平的
+                        } else { // 前段是水平的
+                            p_prev.x = p_curr.x; // 那麼這段必須是垂直的
                         }
+                    } else { // 如果前面只有一個點，則優先保持水平
+                        p_prev.y = p_curr.y;
                     }
-                });
+                }
+            }
+
+            // 處理後一個點
+            if (i < points.length - 1) {
+                const p_next = points[i + 1];
+                // 【修正】只有在相鄰點不是元件端點，也不是使用者定義的節點時，才自動調整它
+                if (!p_next.terminal && !p_next.isNode) { 
+                    if (i < points.length - 2) {
+                        const p_after_next = points[i + 2];
+                        // 根據更後一段的方向，決定如何移動後一個點
+                        if (p_after_next.x === p_next.x) { // 後段是垂直的
+                            p_next.y = p_curr.y; // 那麼這段必須是水平的
+                        } else { // 後段是水平的
+                            p_next.x = p_curr.x; // 那麼這段必須是垂直的
+                        }
+                    } else { // 如果後面只有一個點，則優先保持水平
+                        p_next.y = p_curr.y;
+                    }
+                }
+            }
+        });
+    }
+
+
+    if (state.isDragging) {
+        circuit.wires.forEach(wire => {
+            const fixOrthogonality = (points) => {
+                if (points.length < 2) return;
+                const p_last = points[points.length - 1];
+                const p_before_last = points[points.length - 2];
+
+                if (p_last.x !== p_before_last.x && p_last.y !== p_before_last.y) {
+                    const dx = Math.abs(p_last.x - p_before_last.x);
+                    const dy = Math.abs(p_last.y - p_before_last.y);
+                    
+                    let new_intermediate;
+                    if (dx < dy) {
+                        new_intermediate = { 
+                            x: snapToGrid(p_last.x, gridSize), 
+                            y: snapToGrid(p_before_last.y, gridSize) 
+                        };
+                    } else {
+                        new_intermediate = { 
+                            x: snapToGrid(p_before_last.x, gridSize), 
+                            y: snapToGrid(p_last.y, gridSize) 
+                        };
+                    }
+                    points.splice(points.length - 1, 0, new_intermediate);
+                }
+            };
+            
+            const lastPoint = wire.points[wire.points.length - 1];
+            if (lastPoint.terminal && state.selectedComponentIds.includes(lastPoint.terminal.componentId)) {
+                fixOrthogonality(wire.points);
             }
             
-            if (insertions.length > 0) {
-                insertions.sort((a, b) => b.index - a.index).forEach(ins => {
-                    wire.points.splice(ins.index, 0, ins.point);
-                });
+            const firstPoint = wire.points[0];
+            if (firstPoint.terminal && state.selectedComponentIds.includes(firstPoint.terminal.componentId)) {
+                const reversedPoints = [...wire.points].reverse();
+                fixOrthogonality(reversedPoints);
+                wire.points = reversedPoints.reverse();
             }
         });
     }
 
-    // 步驟 2: 正交性修復 - 處理因元件移動導致的線路變形
-    circuit.wires.forEach(wire => {
-        const ignoreIds = new Set();
-        const startTerminal = wire.points[0].terminal;
-        const endTerminal = wire.points[wire.points.length - 1].terminal;
-        if (startTerminal) ignoreIds.add(startTerminal.componentId);
-        if (endTerminal) ignoreIds.add(endTerminal.componentId);
-        const ignoreIdsArray = Array.from(ignoreIds);
 
-        if (wire.points.length === 2) {
-            const p1 = wire.points[0];
-            const p2 = wire.points[1];
-            if (p1.x !== p2.x && p1.y !== p2.y) {
-                const pathH_intermediate = { x: p2.x, y: p1.y };
-                const pathV_intermediate = { x: p1.x, y: p2.y };
-                const pathH_collides = isPathColliding([p1, pathH_intermediate, p2], ignoreIdsArray);
-                const pathV_collides = isPathColliding([p1, pathV_intermediate, p2], ignoreIdsArray);
-
-                let chosenIntermediate;
-                if (pathH_collides && !pathV_collides) {
-                    chosenIntermediate = pathV_intermediate;
-                } else if (!pathH_collides && pathV_collides) {
-                    chosenIntermediate = pathH_intermediate;
-                } else {
-                    const dx = Math.abs(p1.x - p2.x);
-                    const dy = Math.abs(p1.y - p2.y);
-                    chosenIntermediate = (dx > dy) ? pathH_intermediate : pathV_intermediate;
-                }
-                wire.points.splice(1, 0, chosenIntermediate);
-            }
-        } else if (wire.points.length > 2) {
-            const p1 = wire.points[0];
-            const p2 = wire.points[1];
-            const p3 = wire.points[2];
-            if (p2.y === p3.y) { p2.x = p1.x; } else if (p2.x === p3.x) { p2.y = p1.y; }
-
-            const pn = wire.points[wire.points.length - 1];
-            const pn_1 = wire.points[wire.points.length - 2];
-            const pn_2 = wire.points[wire.points.length - 3];
-            if (pn_2.y === pn_1.y) { pn_1.x = pn.x; } else if (pn_2.x === pn_1.x) { pn_1.y = pn.y; }
-        }
-    });
-
-    // 步驟 3: 線路簡化 - 移除共線的多餘節點
-    circuit.wires.forEach(simplifyWire);
-
-    // --- 渲染階段 ---
-
-    // 清除畫布 (保留網格和 defs)
-    while (svg.children.length > 2) {
-        svg.removeChild(svg.children[2]);
-    }
-
-    // 渲染導線
-    circuit.wires.forEach(wire => {
-        const polyline = document.createElementNS(svgNS, 'polyline');
-        polyline.setAttribute('points', pointsToSvgPath(wire.points));
-        polyline.classList.add('wire');
-        if (state.selectedWireIds.includes(wire.id)) {
-            polyline.style.stroke = '#00FFFF'; // 高亮選中的導線 (青色)
-        }
-        polyline.dataset.id = wire.id;
-        svg.appendChild(polyline);
-    });
-    
-    // 【新增】渲染選中導線的控制點
-    state.selectedWireIds.forEach(wireId => {
-        const wire = circuit.wires.find(w => w.id === wireId);
-        if (!wire) return;
-        
-        wire.points.forEach((p, index) => {
-            // 我們只為中間的轉折點增加控制方塊
-            if (index > 0 && index < wire.points.length - 1) {
-                const handleSize = 8;
-                const rect = document.createElementNS(svgNS, 'rect');
-                rect.setAttribute('x', p.x - handleSize / 2);
-                rect.setAttribute('y', p.y - handleSize / 2);
-                rect.setAttribute('width', handleSize);
-                rect.setAttribute('height', handleSize);
-                rect.classList.add('wire-vertex-handle');
-                rect.dataset.wireId = wireId;
-                rect.dataset.pointIndex = index;
-                svg.appendChild(rect);
-            }
-        });
-    });
-
-
-    // 渲染元件
-    circuit.components.forEach(comp => {
-        const g = document.createElementNS(svgNS, 'g');
-        g.innerHTML = getComponentSVG(comp.type);
-        g.setAttribute('transform', `translate(${comp.x}, ${comp.y}) rotate(${comp.rotation})`);
-        g.classList.add('component');
-        g.dataset.id = comp.id;
-        if (state.selectedComponentIds.includes(comp.id)) {
-            g.classList.add('selected');
-        }
-        svg.appendChild(g);
-    });
-
-    // 渲染「連接點」 (Connection Dots)
     const pointConnections = new Map();
     circuit.components.forEach(comp => {
         Object.values(comp.terminals).forEach(term => {
@@ -328,6 +263,131 @@ export function render() {
             pointConnections.get(key).wireIds.add(wire.id);
         });
     });
+    
+    const junctionPoints = new Set();
+    pointConnections.forEach((conn, key) => {
+        const isJunction = conn.isTerminal || conn.wireIds.size > 1;
+        if (isJunction) {
+            junctionPoints.add(key);
+        }
+    });
+
+    if (!state.isDragging && !state.draggingVertexInfo) {
+        const allTerminals = [];
+        circuit.components.forEach(comp => {
+            Object.keys(comp.terminals).forEach(termId => {
+                allTerminals.push({
+                    ...comp.terminals[termId],
+                    componentId: comp.id,
+                    terminalId: termId
+                });
+            });
+        });
+        circuit.wires.forEach(wire => {
+            const insertions = [];
+            for (let i = 0; i < wire.points.length - 1; i++) {
+                const p1 = wire.points[i];
+                const p2 = wire.points[i + 1];
+                allTerminals.forEach(term => {
+                    const termIsOnSegment = 
+                        (Math.abs(p1.x - term.x) + Math.abs(p2.x - term.x) === Math.abs(p1.x - p2.x)) &&
+                        (Math.abs(p1.y - term.y) + Math.abs(p2.y - term.y) === Math.abs(p1.y - p2.y));
+                    if (termIsOnSegment) {
+                        const pointExists = wire.points.some(p => p.x === term.x && p.y === term.y);
+                        if (!pointExists) {
+                            insertions.push({
+                                index: i + 1,
+                                point: {
+                                    x: term.x,
+                                    y: term.y,
+                                    terminal: { componentId: term.componentId, terminalId: term.terminalId }
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+            if (insertions.length > 0) {
+                insertions.sort((a, b) => b.index - a.index).forEach(ins => {
+                    wire.points.splice(ins.index, 0, ins.point);
+                });
+            }
+        });
+    }
+
+    circuit.wires.forEach(wire => {
+        if (wire.points.length === 2) {
+            const p1 = wire.points[0];
+            const p2 = wire.points[1];
+            if (p1.x !== p2.x && p1.y !== p2.y) {
+                const intermediate = { x: p2.x, y: p1.y };
+                wire.points.splice(1, 0, intermediate);
+            }
+        }
+    });
+
+    circuit.wires.forEach(wire => simplifyWire(wire, junctionPoints));
+
+    // --- 渲染階段 ---
+    while (svg.children.length > 2) {
+        svg.removeChild(svg.children[2]);
+    }
+
+    circuit.wires.forEach(wire => {
+        const polyline = document.createElementNS(svgNS, 'polyline');
+        polyline.setAttribute('points', pointsToSvgPath(wire.points));
+        polyline.classList.add('wire');
+        if (state.selectedWireIds.includes(wire.id)) {
+            polyline.style.stroke = '#00FFFF';
+        }
+        polyline.dataset.id = wire.id;
+        svg.appendChild(polyline);
+    });
+    
+    const renderedNodes = new Set(); 
+    circuit.wires.forEach(wire => {
+        wire.points.forEach(p => {
+            const pointKey = `${p.x},${p.y}`;
+            if (p.isNode && !renderedNodes.has(pointKey)) {
+                const handleSize = 14; // 【修正】增加控制點大小，使其更容易選取
+                const rect = document.createElementNS(svgNS, 'rect');
+                rect.setAttribute('x', p.x - handleSize / 2);
+                rect.setAttribute('y', p.y - handleSize / 2);
+                rect.setAttribute('width', handleSize);
+                rect.setAttribute('height', handleSize);
+                rect.classList.add('wire-vertex-handle');
+                if (state.selectedNodeKey === pointKey) {
+                    rect.classList.add('selected');
+                }
+                svg.appendChild(rect);
+                renderedNodes.add(pointKey);
+            }
+        });
+    });
+
+    circuit.components.forEach(comp => {
+        const g = document.createElementNS(svgNS, 'g');
+        g.innerHTML = getComponentSVG(comp.type);
+        g.setAttribute('transform', `translate(${comp.x}, ${comp.y}) rotate(${comp.rotation})`);
+        g.classList.add('component');
+        g.dataset.id = comp.id;
+        if (state.selectedComponentIds.includes(comp.id)) {
+            g.classList.add('selected');
+        }
+        svg.appendChild(g);
+    });
+
+    circuit.components.forEach(comp => {
+        Object.values(comp.terminals).forEach(term => {
+            const terminalDot = document.createElementNS(svgNS, 'circle');
+            terminalDot.setAttribute('cx', term.x);
+            terminalDot.setAttribute('cy', term.y);
+            terminalDot.setAttribute('r', 4);
+            terminalDot.classList.add('component-terminal');
+            svg.appendChild(terminalDot);
+        });
+    });
+
     pointConnections.forEach((conn, key) => {
         const isConnectionPoint = conn.wireIds.size > 1 || (conn.isTerminal && conn.wireIds.size > 0);
         if (isConnectionPoint) {
@@ -344,9 +404,6 @@ export function render() {
 
 // --- 輔助函式 ---
 
-/**
- * 將客戶端座標 (clientX, clientY) 轉換為 SVG 內部座標。
- */
 export function getSvgCoords(e) {
     let pt = svg.createSVGPoint();
     pt.x = e.clientX;
@@ -354,16 +411,10 @@ export function getSvgCoords(e) {
     return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
 
-/**
- * 將一個數值對齊到最近的網格點。
- */
 export function snapToGrid(value, gridSize) {
     return Math.round(value / gridSize) * gridSize;
 }
 
-/**
- * 在指定半徑內查找離給定座標最近的元件端點。
- */
 export function findNearestTerminal(x, y, radius) {
     let nearest = null;
     let minDistSq = radius * radius;
@@ -381,9 +432,6 @@ export function findNearestTerminal(x, y, radius) {
     return nearest;
 }
 
-/**
- * 在指定半徑內查找離給定座標最近的導線段。
- */
 export function findNearestWire(x, y, radius) {
     let nearest = null;
     let minDist = radius;

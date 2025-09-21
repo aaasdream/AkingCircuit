@@ -35,10 +35,12 @@ body, html {
 .component-terminal:hover { fill: #ffeb3b; }
 .wire { 
     stroke: #ff9800; 
-    stroke-width: 3; /* 稍微加粗一點，方便點選 */
+    stroke-width: 3;
     fill: none; 
-    pointer-events: stroke; /* 讓滑鼠可以捕捉到線條的點擊事件 */
+    pointer-events: stroke;
     cursor: pointer;
+    stroke-linejoin: round; /* 【修正】避免尖角處的線條超出影響節點選取 */
+    stroke-linecap: round;  /* 【修正】讓線條端點更圓滑 */
 }
 .wire:hover {
     stroke-width: 5;
@@ -49,16 +51,21 @@ body, html {
 .ghost { opacity: 0.6; pointer-events: none; }
 .ghost * { stroke: #00e6e6; fill: #333; }
 
-/* 連接點樣式 (新增) */
+/* 連接點樣式 */
 .junction-dot {
-    fill: #ff9800; /* 與線條顏色相同 */
+    fill: #ff9800;
     stroke: none;
 }
 
-/* 導線轉折點控制點樣式 (新增) */
+/* 導線轉折點控制點樣式 */
 .wire-vertex-handle {
     fill: #ff9800; /* 橘色 */
     stroke: #ffffff; /* 白色邊框，使其更顯眼 */
     stroke-width: 1;
-    cursor: move; /* 顯示為可移動的指標 */
+    cursor: pointer; /* 預設為可點擊指標 */
+    transition: fill 0.2s;
+}
+.wire-vertex-handle.selected {
+    fill: #00FFFF; /* 青色，與導線選取顏色一致 */
+    cursor: move; /* 被選中後，顯示為可移動指標 */
 }
