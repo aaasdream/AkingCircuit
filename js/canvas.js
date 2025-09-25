@@ -150,99 +150,6 @@ export function render() {
     // --- 預渲染階段 ---
     circuit.wires.forEach(snapWireEndpoints);
 
-    // 當拖動節點時，智慧調整相鄰點以保持正交
-    if (state.draggingVertexInfo) {
-        state.draggingVertexInfo.targets.forEach(target => {
-            const wire = circuit.wires.find(w => w.id === target.wireId);
-            if (!wire) return;
-
-            const points = wire.points;
-            const i = target.pointIndex;
-            const p_curr = points[i];
-
-            // 處理前一個點
-            if (i > 0) {
-                const p_prev = points[i - 1];
-                // 【修正】只有在相鄰點不是元件端點，也不是使用者定義的節點時，才自動調整它
-                if (!p_prev.terminal && !p_prev.isNode) { 
-                    if (i > 1) {
-                        const p_before_prev = points[i - 2];
-                        // 根據更前一段的方向，決定如何移動前一個點
-                        if (p_before_prev.x === p_prev.x) { // 前段是垂直的
-                            p_prev.y = p_curr.y; // 那麼這段必須是水平的
-                        } else { // 前段是水平的
-                            p_prev.x = p_curr.x; // 那麼這段必須是垂直的
-                        }
-                    } else { // 如果前面只有一個點，則優先保持水平
-                        p_prev.y = p_curr.y;
-                    }
-                }
-            }
-
-            // 處理後一個點
-            if (i < points.length - 1) {
-                const p_next = points[i + 1];
-                // 【修正】只有在相鄰點不是元件端點，也不是使用者定義的節點時，才自動調整它
-                if (!p_next.terminal && !p_next.isNode) { 
-                    if (i < points.length - 2) {
-                        const p_after_next = points[i + 2];
-                        // 根據更後一段的方向，決定如何移動後一個點
-                        if (p_after_next.x === p_next.x) { // 後段是垂直的
-                            p_next.y = p_curr.y; // 那麼這段必須是水平的
-                        } else { // 後段是水平的
-                            p_next.x = p_curr.x; // 那麼這段必須是垂直的
-                        }
-                    } else { // 如果後面只有一個點，則優先保持水平
-                        p_next.y = p_curr.y;
-                    }
-                }
-            }
-        });
-    }
-
-
-    if (state.isDragging) {
-        circuit.wires.forEach(wire => {
-            const fixOrthogonality = (points) => {
-                if (points.length < 2) return;
-                const p_last = points[points.length - 1];
-                const p_before_last = points[points.length - 2];
-
-                if (p_last.x !== p_before_last.x && p_last.y !== p_before_last.y) {
-                    const dx = Math.abs(p_last.x - p_before_last.x);
-                    const dy = Math.abs(p_last.y - p_before_last.y);
-                    
-                    let new_intermediate;
-                    if (dx < dy) {
-                        new_intermediate = { 
-                            x: snapToGrid(p_last.x, gridSize), 
-                            y: snapToGrid(p_before_last.y, gridSize) 
-                        };
-                    } else {
-                        new_intermediate = { 
-                            x: snapToGrid(p_before_last.x, gridSize), 
-                            y: snapToGrid(p_last.y, gridSize) 
-                        };
-                    }
-                    points.splice(points.length - 1, 0, new_intermediate);
-                }
-            };
-            
-            const lastPoint = wire.points[wire.points.length - 1];
-            if (lastPoint.terminal && state.selectedComponentIds.includes(lastPoint.terminal.componentId)) {
-                fixOrthogonality(wire.points);
-            }
-            
-            const firstPoint = wire.points[0];
-            if (firstPoint.terminal && state.selectedComponentIds.includes(firstPoint.terminal.componentId)) {
-                const reversedPoints = [...wire.points].reverse();
-                fixOrthogonality(reversedPoints);
-                wire.points = reversedPoints.reverse();
-            }
-        });
-    }
-
-
     const pointConnections = new Map();
     circuit.components.forEach(comp => {
         Object.values(comp.terminals).forEach(term => {
@@ -272,60 +179,6 @@ export function render() {
         }
     });
 
-    if (!state.isDragging && !state.draggingVertexInfo) {
-        const allTerminals = [];
-        circuit.components.forEach(comp => {
-            Object.keys(comp.terminals).forEach(termId => {
-                allTerminals.push({
-                    ...comp.terminals[termId],
-                    componentId: comp.id,
-                    terminalId: termId
-                });
-            });
-        });
-        circuit.wires.forEach(wire => {
-            const insertions = [];
-            for (let i = 0; i < wire.points.length - 1; i++) {
-                const p1 = wire.points[i];
-                const p2 = wire.points[i + 1];
-                allTerminals.forEach(term => {
-                    const termIsOnSegment = 
-                        (Math.abs(p1.x - term.x) + Math.abs(p2.x - term.x) === Math.abs(p1.x - p2.x)) &&
-                        (Math.abs(p1.y - term.y) + Math.abs(p2.y - term.y) === Math.abs(p1.y - p2.y));
-                    if (termIsOnSegment) {
-                        const pointExists = wire.points.some(p => p.x === term.x && p.y === term.y);
-                        if (!pointExists) {
-                            insertions.push({
-                                index: i + 1,
-                                point: {
-                                    x: term.x,
-                                    y: term.y,
-                                    terminal: { componentId: term.componentId, terminalId: term.terminalId }
-                                }
-                            });
-                        }
-                    }
-                });
-            }
-            if (insertions.length > 0) {
-                insertions.sort((a, b) => b.index - a.index).forEach(ins => {
-                    wire.points.splice(ins.index, 0, ins.point);
-                });
-            }
-        });
-    }
-
-    circuit.wires.forEach(wire => {
-        if (wire.points.length === 2) {
-            const p1 = wire.points[0];
-            const p2 = wire.points[1];
-            if (p1.x !== p2.x && p1.y !== p2.y) {
-                const intermediate = { x: p2.x, y: p1.y };
-                wire.points.splice(1, 0, intermediate);
-            }
-        }
-    });
-
     circuit.wires.forEach(wire => simplifyWire(wire, junctionPoints));
 
     // --- 渲染階段 ---
@@ -349,14 +202,14 @@ export function render() {
         wire.points.forEach(p => {
             const pointKey = `${p.x},${p.y}`;
             if (p.isNode && !renderedNodes.has(pointKey)) {
-                const handleSize = 14; // 【修正】增加控制點大小，使其更容易選取
+                const handleSize = 14; 
                 const rect = document.createElementNS(svgNS, 'rect');
                 rect.setAttribute('x', p.x - handleSize / 2);
                 rect.setAttribute('y', p.y - handleSize / 2);
                 rect.setAttribute('width', handleSize);
                 rect.setAttribute('height', handleSize);
                 rect.classList.add('wire-vertex-handle');
-                if (state.selectedNodeKey === pointKey) {
+                if (state.selectedNodeKeys.includes(pointKey)) {
                     rect.classList.add('selected');
                 }
                 svg.appendChild(rect);
@@ -461,6 +314,33 @@ export function findNearestWire(x, y, radius) {
                     y: snapToGrid(projY, gridSize),
                     segment: [p1, p2]
                 };
+            }
+        }
+    }
+    return nearest;
+}
+
+/**
+ * 【已修改】尋找滑鼠附近最近的導線節點（轉折點）。
+ * @param {number} x - 滑鼠的 X 座標。
+ * @param {number} y - 滑鼠的 Y 座標。
+ * @param {number} radius - 搜尋半徑。
+ * @returns {object|null} - 如果找到節點，返回包含節點物件【參考】的資訊，否則返回 null。
+ */
+export function findNearestNode(x, y, radius) {
+    let nearest = null;
+    let minDistSq = radius * radius;
+
+    for (const wire of circuit.wires) {
+        for (const point of wire.points) {
+            if (point.isNode) {
+                const dx = x - point.x;
+                const dy = y - point.y;
+                const distSq = dx * dx + dy * dy;
+                if (distSq < minDistSq) {
+                    minDistSq = distSq;
+                    nearest = { type: 'node', point: point }; // 返回 point 物件本身的參考
+                }
             }
         }
     }

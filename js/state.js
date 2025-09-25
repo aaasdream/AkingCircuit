@@ -14,19 +14,22 @@ export let state = {
     mode: 'IDLE', // 'IDLE', 'PLACING', 'WIRING', 'SELECT'
     placingType: null,
     isPanning: false,
-    isDragging: false, // 是否正在拖曳元件
+    isDragging: false, 
+    isMarqueeSelecting: false,
     panStart: { x: 0, y: 0 },
     dragStart: { x: 0, y: 0 },
+    marqueeStart: { x: 0, y: 0 },
     ghostRotation: 0,
     componentDragStartPositions: new Map(),
+    draggingNodesInfo: null,
     viewBox: { x: 0, y: 0, w: 0, h: 0 },
     currentWirePoints: [],
     selectedComponentIds: [],
     selectedWireIds: [],
-    selectedNodeKey: null, // << 新增：儲存被選取節點的 'x,y' 鍵
-    draggingVertexInfo: null,
+    selectedNodeKeys: [],
+    // draggingVertexInfo: null, // << 已刪除：移除此狀態以統一拖曳邏輯
     wireDirection: 'UNDETERMINED',
-    wireLastMovePoint: null, // 【新增】追蹤畫線時的滑鼠最後位置，用於智慧判斷正交方向
+    wireLastMovePoint: null,
 };
 
 // 用於產生元件唯一ID的計數器

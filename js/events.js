@@ -1,41 +1,11 @@
 import { svg, state, circuit, gridSize, svgNS, elementCounter } from './state.js';
-import { updateViewBox, getSvgCoords, snapToGrid, findNearestTerminal, findNearestWire, render, isPathColliding } from './canvas.js';
+import { updateViewBox, getSvgCoords, snapToGrid, findNearestTerminal, findNearestWire, findNearestNode, render, isPathColliding } from './canvas.js';
 import { createComponentData, getComponentSVG, updateComponentTerminals } from './components.js';
 import { updateButtonStates, updatePropertiesPanel } from './ui.js';
 
 let ghostComponent = null;
 let tempWireEl = null;
-
-
-/**
- * 產生正交路徑的預覽點。這些點僅用於視覺預覽，不包含節點資訊。
- * @param {object} startPoint - 起始點 {x, y}
- * @param {object} endPoint - 結束點 {x, y}
- * @returns {Array<object>} - 組成路徑的點陣列
- */
-function getOrthogonalPreviewPoints(startPoint, endPoint) {
-    if (startPoint.x === endPoint.x || startPoint.y === endPoint.y) {
-        state.wireDirection = 'UNDETERMINED';
-        return [startPoint, endPoint];
-    }
-    
-    const intermediate1 = { x: endPoint.x, y: startPoint.y };
-    const intermediate2 = { x: startPoint.x, y: endPoint.y };
-    
-    if (state.wireDirection === 'HORIZONTAL') {
-        return [startPoint, intermediate1, endPoint];
-    } 
-    if (state.wireDirection === 'VERTICAL') {
-        return [startPoint, intermediate2, endPoint];
-    }
-    
-    const dx = Math.abs(startPoint.x - endPoint.x);
-    const dy = Math.abs(startPoint.y - endPoint.y);
-    return dx > dy 
-        ? [startPoint, intermediate1, endPoint]
-        : [startPoint, intermediate2, endPoint];
-}
-
+let marqueeRect = null;
 
 function setMode(newMode, options = {}) {
     if (ghostComponent) { ghostComponent.remove(); ghostComponent = null; }
@@ -44,11 +14,9 @@ function setMode(newMode, options = {}) {
     state.placingType = options.placingType || null;
     state.selectedComponentIds = [];
     state.selectedWireIds = [];
-    state.selectedNodeKey = null;
+    state.selectedNodeKeys = [];
     state.ghostRotation = 0;
     state.currentWirePoints = [];
-    state.wireDirection = 'UNDETERMINED';
-    state.wireLastMovePoint = null;
     if (state.mode === 'PLACING' && state.placingType) {
         ghostComponent = document.createElementNS(svgNS, 'g');
         ghostComponent.innerHTML = getComponentSVG(state.placingType);
@@ -61,13 +29,42 @@ function setMode(newMode, options = {}) {
     updatePropertiesPanel();
 }
 
+function createJunctionOnWire(snapPoint) {
+    if (!snapPoint || !snapPoint.wire) return null;
+
+    const originalWire = circuit.wires.find(w => w.id === snapPoint.wire.wireId);
+    if (!originalWire) return null;
+
+    const segmentStartPoint = snapPoint.wire.segment[0];
+    const segmentEndPoint = snapPoint.wire.segment[1];
+    const segmentStartIndex = originalWire.points.findIndex(p => p.x === segmentStartPoint.x && p.y === segmentStartPoint.y);
+
+    if (segmentStartIndex > -1 && segmentStartIndex < originalWire.points.length - 1 &&
+        originalWire.points[segmentStartIndex + 1].x === segmentEndPoint.x &&
+        originalWire.points[segmentStartIndex + 1].y === segmentEndPoint.y) {
+
+        const newJunctionPoint = { x: snapPoint.x, y: snapPoint.y, isNode: true };
+
+        const points1 = originalWire.points.slice(0, segmentStartIndex + 1);
+        points1.push(newJunctionPoint);
+        const points2 = [newJunctionPoint, ...originalWire.points.slice(segmentStartIndex + 1)];
+
+        circuit.wires = circuit.wires.filter(w => w.id !== originalWire.id);
+        circuit.wires.push({ id: `w${++elementCounter.W}`, points: points1 });
+        circuit.wires.push({ id: `w${++elementCounter.W}`, points: points2 });
+
+        return newJunctionPoint;
+    }
+    return null;
+}
+
 function onMouseDown(e) {
     if (e.button === 1) { // 中鍵平移
         state.isPanning = true; state.panStart = { x: e.clientX, y: e.clientY };
         svg.style.cursor = 'grabbing';
         return;
     }
-    if (e.button === 2) { // 右鍵取消
+    if (e.button === 2) { // 右鍵
         e.preventDefault();
         if (state.mode === 'WIRING' && state.currentWirePoints.length > 0) {
             finalizeCurrentWire();
@@ -97,136 +94,127 @@ function onMouseDown(e) {
 
     } else if (state.mode === 'WIRING') {
         const { snapPoint, connected } = getWireSnapPoint(e);
+        let newPoint; 
 
-        if (state.currentWirePoints.length === 0) {
-            // 【畫線起點】
-            state.currentWirePoints.push(snapPoint);
+        if (snapPoint.node) {
+            newPoint = snapPoint.node.point;
+        } else if (snapPoint.terminal) {
+            newPoint = { x: snapPoint.x, y: snapPoint.y, terminal: snapPoint.terminal };
+        } else if (snapPoint.wire) {
+            newPoint = createJunctionOnWire(snapPoint);
+        } else {
+            newPoint = { x: snapPoint.x, y: snapPoint.y, isNode: true };
+        }
+        
+        if (!newPoint) return;
+
+        const isFirstPoint = state.currentWirePoints.length === 0;
+        state.currentWirePoints.push(newPoint);
+
+        if (isFirstPoint) {
             tempWireEl = document.createElementNS(svgNS, 'polyline');
             tempWireEl.classList.add('wire');
             tempWireEl.style.opacity = '0.7';
             svg.appendChild(tempWireEl);
+        }
+
+        if (!isFirstPoint && (snapPoint.terminal || snapPoint.node)) {
+            finalizeCurrentWire();
+            setMode('SELECT');
         } else {
-            // 【畫線中點或終點】
-            const lastPoint = state.currentWirePoints[0];
-            let nextStartPoint = snapPoint;
-
-            if (snapPoint.wire) {
-                const newJunctionPoint = { x: snapPoint.x, y: snapPoint.y, isNode: true };
-                nextStartPoint = newJunctionPoint;
-
-                const originalWire = circuit.wires.find(w => w.id === snapPoint.wire.wireId);
-                const segmentStartPoint = snapPoint.wire.segment[0];
-                
-                if(originalWire) {
-                    const segmentStartIndex = originalWire.points.findIndex(p => p.x === segmentStartPoint.x && p.y === segmentStartPoint.y);
-                    circuit.wires = circuit.wires.filter(w => w.id !== originalWire.id);
-                    
-                    const points1 = originalWire.points.slice(0, segmentStartIndex + 1);
-                    points1.push(newJunctionPoint);
-                    circuit.wires.push({ id: `w${++elementCounter.W}`, points: points1 });
-                    
-                    const points2 = [newJunctionPoint, ...originalWire.points.slice(segmentStartIndex + 1)];
-                    circuit.wires.push({ id: `w${++elementCounter.W}`, points: points2 });
-                }
-            }
-            
-            const pointsForCurrentSegment = getOrthogonalPreviewPoints(lastPoint, snapPoint);
-            circuit.wires.push({ id: `w${++elementCounter.W}`, points: pointsForCurrentSegment });
-            
-            // 【核心修正】調整執行順序
-            // 1. 移除舊的預覽線
-            if (tempWireEl) {
-                tempWireEl.remove();
-                tempWireEl = null;
-            }
-            
-            // 2. 渲染所有永久線段
-            render(); 
-
-            // 3. 根據情況決定下一步
-            if (connected) {
-                // 如果連接完成，就結束畫線
-                finalizeCurrentWire();
-                setMode('SELECT');
-            } else {
-                // 如果是在空白處點擊，則準備開始畫下一段
-                nextStartPoint.isNode = true; 
-                state.currentWirePoints = [nextStartPoint];
-                state.wireDirection = 'UNDETERMINED';
-                
-                // 4. 在所有永久線段都畫好之後，才建立新的預覽線
-                tempWireEl = document.createElementNS(svgNS, 'polyline');
-                tempWireEl.classList.add('wire');
-                tempWireEl.style.opacity = '0.7';
-                svg.appendChild(tempWireEl);
-                onMouseMove(e);
-            }
+            onMouseMove(e);
         }
 
     } else if (state.mode === 'SELECT') {
+        // --- 【核心修改】統一拖曳邏輯 ---
+        const { x, y } = getSvgCoords(e);
         const clickedVertexHandle = e.target.closest('.wire-vertex-handle');
+        const clickedComponent = e.target.closest('.component');
+        const clickedWire = e.target.closest('.wire');
 
+        // 1. 判斷點擊的目標是否已經在選取集合中
+        let clickedComponentId = clickedComponent ? clickedComponent.dataset.id : null;
+        let nodeKey = null;
         if (clickedVertexHandle) {
-            e.stopPropagation();
             const handleX = parseFloat(clickedVertexHandle.getAttribute('x')) + parseFloat(clickedVertexHandle.getAttribute('width')) / 2;
             const handleY = parseFloat(clickedVertexHandle.getAttribute('y')) + parseFloat(clickedVertexHandle.getAttribute('height')) / 2;
-            const nodeKey = `${handleX},${handleY}`;
+            nodeKey = `${handleX},${handleY}`;
+        }
+        
+        const isComponentSelected = clickedComponentId && state.selectedComponentIds.includes(clickedComponentId);
+        const isNodeSelected = nodeKey && state.selectedNodeKeys.includes(nodeKey);
+        
+        // 2. 如果是，則無論點到的是元件還是節點，都立即啟動「群組拖曳」
+        if (isComponentSelected || isNodeSelected) {
+            state.isDragging = true;
+            state.dragStart = { x, y };
 
-            if (state.selectedNodeKey === nodeKey) {
-                const targetPoints = [];
+            // 記錄所有選取物件的初始位置
+            state.componentDragStartPositions.clear();
+            state.selectedComponentIds.forEach(id => {
+                const comp = circuit.components.find(c => c.id === id);
+                if (comp) state.componentDragStartPositions.set(id, { x: comp.x, y: comp.y });
+            });
+            state.draggingNodesInfo = [];
+            state.selectedNodeKeys.forEach(key => {
+                const [keyX, keyY] = key.split(',').map(parseFloat);
                 circuit.wires.forEach(wire => {
                     wire.points.forEach((point, index) => {
-                        if (point.x === handleX && point.y === handleY && point.isNode) {
-                            targetPoints.push({ wireId: wire.id, pointIndex: index });
+                        if (point.x === keyX && point.y === keyY) {
+                            state.draggingNodesInfo.push({
+                                pointRef: point, // 直接儲存物件參考
+                                startX: point.x,
+                                startY: point.y
+                            });
                         }
                     });
                 });
-                if (targetPoints.length > 0) {
-                    state.draggingVertexInfo = {
-                        targets: targetPoints,
-                        originalX: handleX,
-                        originalY: handleY
-                    };
-                }
-            } else {
+            });
+            return; // 啟動拖曳後，結束 mousedown 處理
+        }
+
+        // 3. 如果不是，則執行「變更選取」的邏輯
+        // 如果點在空白處，開始框選
+        if (!clickedComponent && !clickedWire && !clickedVertexHandle) {
+            state.isMarqueeSelecting = true;
+            state.marqueeStart = getSvgCoords(e);
+            if (!e.shiftKey) {
                 state.selectedComponentIds = [];
                 state.selectedWireIds = [];
-                state.selectedNodeKey = nodeKey;
+                state.selectedNodeKeys = [];
             }
-        } else {
-            const { x, y } = getSvgCoords(e);
-            const clickedComponent = e.target.closest('.component');
-            const clickedComponentId = clickedComponent ? clickedComponent.dataset.id : null;
-            const clickedWire = e.target.closest('.wire');
-            const clickedWireId = clickedWire ? clickedWire.dataset.id : null;
+            render();
+            marqueeRect = document.createElementNS(svgNS, 'rect');
+            marqueeRect.classList.add('marquee-rect');
+            svg.appendChild(marqueeRect);
+            return;
+        }
 
-            if (clickedComponentId && state.selectedComponentIds.includes(clickedComponentId)) {
-                state.isDragging = true;
-                state.dragStart = { x, y };
-                state.componentDragStartPositions.clear();
-                state.selectedComponentIds.forEach(id => {
-                    const comp = circuit.components.find(c => c.id === id);
-                    if (comp) state.componentDragStartPositions.set(id, { x: comp.x, y: comp.y });
-                });
-                return;
-            }
+        // 如果點在物件上，根據是否按住 Shift 來更新選取
+        if (!e.shiftKey) {
+            state.selectedComponentIds = [];
+            state.selectedWireIds = [];
+            state.selectedNodeKeys = [];
+        }
 
-            if (e.shiftKey) {
-                if (clickedComponentId) {
-                    const index = state.selectedComponentIds.indexOf(clickedComponentId);
-                    if (index > -1) state.selectedComponentIds.splice(index, 1);
-                    else state.selectedComponentIds.push(clickedComponentId);
-                }
-                if (clickedWireId) {
-                    const index = state.selectedWireIds.indexOf(clickedWireId);
-                    if (index > -1) state.selectedWireIds.splice(index, 1);
-                    else state.selectedWireIds.push(clickedWireId);
-                }
-            } else {
-                state.selectedComponentIds = clickedComponentId ? [clickedComponentId] : [];
-                state.selectedWireIds = clickedWireId ? [clickedWireId] : [];
-                state.selectedNodeKey = null;
-            }
+        // 切換元件的選取狀態
+        if (clickedComponentId) {
+            const index = state.selectedComponentIds.indexOf(clickedComponentId);
+            if (index > -1) state.selectedComponentIds.splice(index, 1);
+            else state.selectedComponentIds.push(clickedComponentId);
+        }
+        // 切換節點的選取狀態
+        if (nodeKey) {
+            const index = state.selectedNodeKeys.indexOf(nodeKey);
+            if (index > -1) state.selectedNodeKeys.splice(index, 1);
+            else state.selectedNodeKeys.push(nodeKey);
+        }
+        // 切換導線的選取狀態
+        let clickedWireId = clickedWire ? clickedWire.dataset.id : null;
+        if (clickedWireId) {
+            const index = state.selectedWireIds.indexOf(clickedWireId);
+            if (index > -1) state.selectedWireIds.splice(index, 1);
+            else state.selectedWireIds.push(clickedWireId);
         }
         
         updatePropertiesPanel();
@@ -235,6 +223,20 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
+    if (state.isMarqueeSelecting) {
+        const currentPos = getSvgCoords(e);
+        const sx = Math.min(state.marqueeStart.x, currentPos.x);
+        const sy = Math.min(state.marqueeStart.y, currentPos.y);
+        const sw = Math.abs(state.marqueeStart.x - currentPos.x);
+        const sh = Math.abs(state.marqueeStart.y - currentPos.y);
+
+        marqueeRect.setAttribute('x', sx);
+        marqueeRect.setAttribute('y', sy);
+        marqueeRect.setAttribute('width', sw);
+        marqueeRect.setAttribute('height', sh);
+        return; 
+    }
+
     if (state.isPanning) {
         const dx = e.clientX - state.panStart.x, dy = e.clientY - state.panStart.y;
         const zoomFactor = state.viewBox.w / svg.clientWidth;
@@ -244,32 +246,13 @@ function onMouseMove(e) {
         return;
     }
     
-    if (state.draggingVertexInfo && state.draggingVertexInfo.targets) {
-        const { x, y } = getSvgCoords(e);
-        const snappedX = snapToGrid(x, gridSize);
-        const snappedY = snapToGrid(y, gridSize);
-        const { originalX, originalY } = state.draggingVertexInfo;
-
-        if (snappedX === originalX && snappedY === originalY) return;
-        
-        state.draggingVertexInfo.targets.forEach(target => {
-            const wire = circuit.wires.find(w => w.id === target.wireId);
-            if (!wire) return;
-            const point = wire.points[target.pointIndex];
-            point.x = snappedX;
-            point.y = snappedY;
-        });
-        
-        state.draggingVertexInfo.originalX = snappedX;
-        state.draggingVertexInfo.originalY = snappedY;
-        state.selectedNodeKey = `${snappedX},${snappedY}`;
-        render();
-        return;
-    }
-
+    // 【核心修改】移除舊的 draggingVertexInfo 邏輯，所有拖曳都由 isDragging 處理
     if (state.isDragging) {
         const { x, y } = getSvgCoords(e);
-        const dx = x - state.dragStart.x, dy = y - state.dragStart.y;
+        const dx = x - state.dragStart.x;
+        const dy = y - state.dragStart.y;
+
+        // 移動所有選中的元件
         state.selectedComponentIds.forEach(id => {
             const comp = circuit.components.find(c => c.id === id);
             const startPos = state.componentDragStartPositions.get(id);
@@ -279,6 +262,14 @@ function onMouseMove(e) {
                 updateComponentTerminals(comp);
             }
         });
+        
+        // 移動所有選中的節點
+        if (state.draggingNodesInfo) {
+            state.draggingNodesInfo.forEach(info => {
+                info.pointRef.x = info.startX + dx;
+                info.pointRef.y = info.startY + dy;
+            });
+        }
         render();
         return;
     }
@@ -289,18 +280,8 @@ function onMouseMove(e) {
         const snappedY = snapToGrid(y, gridSize);
         ghostComponent.setAttribute('transform', `translate(${snappedX}, ${snappedY}) rotate(${state.ghostRotation})`);
     } else if (state.mode === 'WIRING' && tempWireEl && state.currentWirePoints.length > 0) {
-        const lastPoint = state.currentWirePoints[0];
         const { snapPoint } = getWireSnapPoint(e);
-        
-        if (state.wireDirection === 'UNDETERMINED') {
-            const dx = Math.abs(snapPoint.x - lastPoint.x);
-            const dy = Math.abs(snapPoint.y - lastPoint.y);
-            if (dx > gridSize / 2 || dy > gridSize / 2) {
-                state.wireDirection = dx > dy ? 'HORIZONTAL' : 'VERTICAL';
-            }
-        }
-        
-        const previewPoints = getOrthogonalPreviewPoints(lastPoint, snapPoint);
+        const previewPoints = [...state.currentWirePoints, snapPoint];
         tempWireEl.setAttribute('points', previewPoints.map(p => `${p.x},${p.y}`).join(' '));
     }
 }
@@ -313,39 +294,86 @@ function getWireSnapPoint(e) {
     let connected = false;
 
     const nearestTerminal = findNearestTerminal(x, y, 10);
+    const nearestNode = findNearestNode(x, y, 10);
     const nearestWire = findNearestWire(x, y, 10);
 
     if (nearestTerminal) {
         snapPoint = { x: nearestTerminal.x, y: nearestTerminal.y, terminal: { componentId: nearestTerminal.componentId, terminalId: nearestTerminal.terminalId } };
         connected = true;
+    } else if (nearestNode) {
+        snapPoint = { x: nearestNode.point.x, y: nearestNode.point.y, node: nearestNode };
+        connected = true;
     } else if (nearestWire) {
         snapPoint = { x: nearestWire.x, y: nearestWire.y, wire: nearestWire };
         connected = true;
     }
-    
     return { snapPoint, connected };
 }
 
 function finalizeCurrentWire() {
+    if (state.currentWirePoints.length >= 2) {
+        circuit.wires.push({
+            id: `w${++elementCounter.W}`,
+            points: state.currentWirePoints
+        });
+    }
     state.currentWirePoints = [];
     if (tempWireEl) { tempWireEl.remove(); tempWireEl = null; }
-    state.wireDirection = 'UNDETERMINED';
+    render();
 }
 
 function onMouseUp(e) {
+    if (state.isMarqueeSelecting) {
+        const finalPos = getSvgCoords(e);
+        const sx = Math.min(state.marqueeStart.x, finalPos.x);
+        const sy = Math.min(state.marqueeStart.y, finalPos.y);
+        const sw = Math.abs(state.marqueeStart.x - finalPos.x);
+        const sh = Math.abs(state.marqueeStart.y - finalPos.y);
+
+        const selectedComponentIds = new Set(state.selectedComponentIds);
+        const selectedWireIds = new Set(state.selectedWireIds);
+        const selectedNodeKeys = new Set(state.selectedNodeKeys);
+
+        circuit.components.forEach(comp => {
+            if (comp.x >= sx && comp.x <= sx + sw && comp.y >= sy && comp.y <= sy + sh) {
+                selectedComponentIds.add(comp.id);
+            }
+        });
+        circuit.wires.forEach(wire => {
+            const isAnyPointInside = wire.points.some(p => p.x >= sx && p.x <= sx + sw && p.y >= sy && p.y <= sy + sh);
+            if (isAnyPointInside) {
+                selectedWireIds.add(wire.id);
+            }
+            wire.points.forEach(p => {
+                if (p.isNode && p.x >= sx && p.x <= sx + sw && p.y >= sy && p.y <= sy + sh) {
+                    selectedNodeKeys.add(`${p.x},${p.y}`);
+                }
+            });
+        });
+
+        state.selectedComponentIds = Array.from(selectedComponentIds);
+        state.selectedWireIds = Array.from(selectedWireIds);
+        state.selectedNodeKeys = Array.from(selectedNodeKeys);
+
+        state.isMarqueeSelecting = false;
+        if (marqueeRect) {
+            marqueeRect.remove();
+            marqueeRect = null;
+        }
+        updatePropertiesPanel();
+        render(); 
+    }
+
     if (e.button === 1) {
         state.isPanning = false;
         const cursors = { 'SELECT': 'default', 'WIRING': 'crosshair', 'PLACING': 'crosshair' };
         svg.style.cursor = cursors[state.mode] || 'default';
     }
-
-    if (state.draggingVertexInfo) {
-        state.draggingVertexInfo = null;
-        render(); 
-    }
     
+    // 【核心修改】結束拖曳時，對齊網格並更新節點 keys
     if (state.isDragging) {
         state.isDragging = false;
+        
         state.selectedComponentIds.forEach(id => {
             const comp = circuit.components.find(c => c.id === id);
             if(comp) {
@@ -354,6 +382,19 @@ function onMouseUp(e) {
                 updateComponentTerminals(comp);
             }
         });
+
+        if (state.draggingNodesInfo) {
+            const finalNodeKeys = new Set();
+            state.draggingNodesInfo.forEach(info => {
+                info.pointRef.x = snapToGrid(info.pointRef.x, gridSize);
+                info.pointRef.y = snapToGrid(info.pointRef.y, gridSize);
+                finalNodeKeys.add(`${info.pointRef.x},${info.pointRef.y}`);
+            });
+            // 確保 selectedNodeKeys 與節點的最終位置同步
+            state.selectedNodeKeys = Array.from(finalNodeKeys);
+        }
+        
+        state.draggingNodesInfo = null;
         render();
     }
 }
@@ -401,20 +442,17 @@ function onKeyDown(e) {
     if (e.key === 'Delete' || e.key === 'Backspace') {
         let anythingDeleted = false;
 
-        if (state.selectedNodeKey) {
-            const [xStr, yStr] = state.selectedNodeKey.split(',');
-            const x = parseFloat(xStr);
-            const y = parseFloat(yStr);
-
+        if (state.selectedNodeKeys.length > 0) {
+            const nodeKeysToDelete = new Set(state.selectedNodeKeys);
             circuit.wires.forEach(wire => {
                 const originalLength = wire.points.length;
-                wire.points = wire.points.filter(p => !(p.isNode && p.x === x && p.y === y));
+                wire.points = wire.points.filter(p => !(p.isNode && nodeKeysToDelete.has(`${p.x},${p.y}`)));
                 if (wire.points.length !== originalLength) {
                     anythingDeleted = true;
                 }
             });
             circuit.wires = circuit.wires.filter(wire => wire.points.length >= 2);
-            state.selectedNodeKey = null;
+            state.selectedNodeKeys = [];
         }
 
         if (state.selectedComponentIds.length > 0) {
@@ -455,6 +493,14 @@ export function setupEventListeners() {
     svg.addEventListener('mouseleave', () => {
         if (state.isPanning) state.isPanning = false;
         if (state.isDragging) onMouseUp({button: 0});
+        if (state.isMarqueeSelecting) {
+            state.isMarqueeSelecting = false;
+            if (marqueeRect) {
+                marqueeRect.remove();
+                marqueeRect = null;
+            }
+            render();
+        }
     });
     window.addEventListener('keydown', onKeyDown);
 }

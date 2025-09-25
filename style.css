@@ -39,8 +39,8 @@ body, html {
     fill: none; 
     pointer-events: stroke;
     cursor: pointer;
-    stroke-linejoin: round; /* 【修正】避免尖角處的線條超出影響節點選取 */
-    stroke-linecap: round;  /* 【修正】讓線條端點更圓滑 */
+    stroke-linejoin: round;
+    stroke-linecap: round;
 }
 .wire:hover {
     stroke-width: 5;
@@ -59,13 +59,21 @@ body, html {
 
 /* 導線轉折點控制點樣式 */
 .wire-vertex-handle {
-    fill: #ff9800; /* 橘色 */
-    stroke: #ffffff; /* 白色邊框，使其更顯眼 */
+    fill: #ff9800;
+    stroke: #ffffff;
     stroke-width: 1;
-    cursor: pointer; /* 預設為可點擊指標 */
+    cursor: pointer;
     transition: fill 0.2s;
 }
 .wire-vertex-handle.selected {
-    fill: #00FFFF; /* 青色，與導線選取顏色一致 */
-    cursor: move; /* 被選中後，顯示為可移動指標 */
+    fill: #00FFFF;
+    cursor: move;
+}
+
+/* 【新增】框選矩形的樣式 */
+.marquee-rect {
+    fill: rgba(0, 158, 255, 0.2);
+    stroke: #009eff;
+    stroke-width: 1;
+    stroke-dasharray: 4 2;
 }
