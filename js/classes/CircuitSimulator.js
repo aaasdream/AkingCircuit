@@ -172,17 +172,25 @@ export class CircuitSimulator {
     }
     
     /**
-     * 執行模擬
+     * 執行直流模擬
      */
     simulate() {
         this.simulationEngine.runSimulation();
     }
     
     /**
+     * 【新增】 執行交流模擬
+     */
+    runACAnalysis(startFreq, stopFreq, points) {
+        this.simulationEngine.runFrequencyAnalysis(startFreq, stopFreq, points);
+    }
+    
+    /**
      * 獲取下一個元件ID
      */
     getNextComponentId(type) {
-        const shortType = { Resistor: 'R', Capacitor: 'C', Inductor: 'L', DC_Source: 'V' }[type];
+        // 【修改】 添加 AC_Source 支持
+        const shortType = { Resistor: 'R', Capacitor: 'C', Inductor: 'L', DC_Source: 'V', AC_Source: 'V' }[type];
         this.elementCounter[shortType]++;
         return `${shortType}${this.elementCounter[shortType]}`;
     }

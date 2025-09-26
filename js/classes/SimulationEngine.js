@@ -72,7 +72,7 @@ export class SimulationEngine {
     /**
      * 驗證電路有效性
      */
-    validateCircuit() {
+    validateCircuit(isAC = false) { // 【修改】增加 isAC 參數
         // 檢查是否有元件
         if (this.simulator.components.length === 0) {
             return {
@@ -82,14 +82,13 @@ export class SimulationEngine {
         }
         
         // 檢查是否有電源
-        const hasPowerSource = this.simulator.components.some(comp => 
-            comp.type === 'DC_Source'
-        );
+        const source_type = isAC ? 'AC_Source' : 'DC_Source';
+        const hasPowerSource = this.simulator.components.some(comp => comp.type === source_type);
         
         if (!hasPowerSource) {
             return {
                 isValid: false,
-                message: "電路中沒有電源元件"
+                message: `電路中沒有${isAC ? '交流' : '直流'}電源元件`
             };
         }
         
@@ -354,13 +353,15 @@ export class SimulationEngine {
     }
     
     /**
-     * 進行頻率分析（如果支援）
+     * 進行頻率分析
      */
     async runFrequencyAnalysis(startFreq = 1, stopFreq = 1e6, points = 100) {
         try {
-            const validation = this.validateCircuit();
+            // 【修改】 驗證AC電路
+            const validation = this.validateCircuit(true);
             if (!validation.isValid) {
-                throw new Error(validation.message);
+                this.simulator.uiManager.showError(validation.message);
+                return;
             }
             
             let netlist = this.generateNetlist();
@@ -372,6 +373,10 @@ export class SimulationEngine {
             
             const results = await spicejs.simulate(netlist);
             console.log("--- AC Analysis Results ---", results);
+            
+            // 【新增】 呼叫 UI 管理器顯示結果
+            this.simulator.uiManager.displayACResults(results);
+            alert("交流分析成功！詳細數據請在 Console (F12) 查看。");
             
             return results;
             

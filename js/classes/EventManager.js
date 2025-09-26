@@ -38,9 +38,23 @@ export class EventManager {
             this.simulator.setMode('WIRING');
         });
         
-        // 模擬按鈕事件
+        // 直流模擬按鈕事件
         document.getElementById('simulate-btn').addEventListener('click', () => {
             this.simulator.simulate();
+        });
+
+        // 【新增】 交流模擬按鈕事件
+        document.getElementById('run-ac-btn').addEventListener('click', () => {
+            const startFreq = parseFloat(document.getElementById('start-freq').value);
+            const stopFreq = parseFloat(document.getElementById('stop-freq').value);
+            const points = parseInt(document.getElementById('points-per-decade').value, 10);
+
+            if (isNaN(startFreq) || isNaN(stopFreq) || isNaN(points) || startFreq <= 0 || stopFreq <= startFreq || points <= 0) {
+                this.simulator.uiManager.showError('無效的交流分析參數');
+                return;
+            }
+            
+            this.simulator.runACAnalysis(startFreq, stopFreq, points);
         });
     }
     

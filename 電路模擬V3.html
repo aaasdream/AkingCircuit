@@ -17,6 +17,7 @@
                 <button class="component-btn" data-type="Capacitor">電容</button>
                 <button class="component-btn" data-type="Inductor">電感</button>
                 <button class="component-btn" data-type="DC_Source">直流電源</button>
+                <button class="component-btn" data-type="AC_Source">交流電源</button> <!-- 【新增】 -->
             </div>
             <div class="panel-section">
                 <h3>工具</h3>
@@ -24,8 +25,25 @@
                 <button id="wire-tool-btn" class="component-btn">連線工具</button>
             </div>
             <div class="panel-section">
-                <h3>模擬</h3>
+                <h3>直流分析</h3>
                 <button id="simulate-btn" class="component-btn" style="background-color:#4CAF50;">執行直流分析</button>
+            </div>
+            <!-- 【新增】 交流分析控制器 -->
+            <div class="panel-section" id="ac-analysis-controls">
+                <h3>交流分析</h3>
+                <div class="ac-input-group">
+                    <label for="start-freq">起始頻率 (Hz)</label>
+                    <input type="text" id="start-freq" value="1">
+                </div>
+                <div class="ac-input-group">
+                    <label for="stop-freq">結束頻率 (Hz)</label>
+                    <input type="text" id="stop-freq" value="1e6">
+                </div>
+                <div class="ac-input-group">
+                    <label for="points-per-decade">點數/十倍頻</label>
+                    <input type="number" id="points-per-decade" value="20">
+                </div>
+                <button id="run-ac-btn" class="component-btn" style="background-color:#3498DB;">執行交流分析</button>
             </div>
         </div>
 
@@ -43,7 +61,5 @@
         </div>
     </div>
     <script type="module" src="js/main.js"></script>
-    <!-- Development test script - remove in production -->
-    <!-- <script type="module" src="js/test.js"></script> -->
 </body>
 </html>

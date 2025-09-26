@@ -140,3 +140,54 @@ body, html {
     stroke-width: 1;
     stroke-dasharray: 4 2;
 }
+
+/* 【新增】 AC 分析控制器樣式 */
+#ac-analysis-controls .ac-input-group {
+    margin-bottom: 8px;
+    padding: 0 5px;
+}
+#ac-analysis-controls label {
+    display: block;
+    font-size: 12px;
+    color: #ccc;
+    margin-bottom: 4px;
+}
+#ac-analysis-controls input {
+    width: calc(100% - 12px);
+    background: #2e2e2e;
+    color: white;
+    border: 1px solid #777;
+    padding: 6px;
+    border-radius: 3px;
+    box-sizing: border-box;
+}
+
+/* 【新增】 交流分析結果表格樣式 */
+.simulation-results-panel table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 11px;
+}
+
+.simulation-results-panel th,
+.simulation-results-panel td {
+    border: 1px solid #555;
+    padding: 4px 6px;
+    text-align: center;
+}
+
+.simulation-results-panel th {
+    background-color: #4a4a4a;
+    color: #ccc;
+    font-weight: bold;
+}
+
+.simulation-results-panel td {
+    background-color: #2e2e2e;
+    color: #f0f0f0;
+}
+
+.simulation-results-panel tr:nth-child(even) td {
+    background-color: #353535;
+}

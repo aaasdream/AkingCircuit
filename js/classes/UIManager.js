@@ -74,7 +74,8 @@ export class UIManager {
         
         if (!component) return;
         
-        const propertiesHTML = `
+        // 【修改】 根據元件類型動態生成屬性
+        let propertiesHTML = `
             <div class="property-group">
                 <label>ID:</label>
                 <input type="text" value="${component.id}" readonly>
@@ -84,9 +85,21 @@ export class UIManager {
                 <input type="text" value="${this.getComponentDisplayName(component.type)}" readonly>
             </div>
             <div class="property-group">
-                <label>數值:</label>
+                <label>${component.type === 'AC_Source' ? 'AC 幅度 (V):' : '數值:'}</label>
                 <input type="text" id="prop-value" value="${component.value}" placeholder="請輸入數值">
             </div>
+        `;
+        
+        if (component.type === 'AC_Source') {
+            propertiesHTML += `
+            <div class="property-group">
+                <label>AC 相位 (°):</label>
+                <input type="text" id="prop-phase" value="${component.ac_phase || 0}" placeholder="請輸入相位">
+            </div>
+            `;
+        }
+
+        propertiesHTML += `
             <div class="property-group">
                 <label>位置:</label>
                 <div class="position-inputs">
@@ -141,6 +154,18 @@ export class UIManager {
                 if (!isNaN(newValue)) {
                     component.value = newValue;
                     console.log(`Component ${component.id} value updated to ${newValue}`);
+                }
+            });
+        }
+        
+        // 【新增】 相位變更事件
+        const phaseInput = document.getElementById('prop-phase');
+        if (phaseInput) {
+            phaseInput.addEventListener('change', (e) => {
+                const newPhase = parseFloat(e.target.value);
+                if (!isNaN(newPhase)) {
+                    component.ac_phase = newPhase;
+                    console.log(`Component ${component.id} phase updated to ${newPhase}`);
                 }
             });
         }
@@ -287,7 +312,8 @@ export class UIManager {
             'Resistor': '電阻',
             'Capacitor': '電容',
             'Inductor': '電感',
-            'DC_Source': '直流電源'
+            'DC_Source': '直流電源',
+            'AC_Source': '交流電源' // 【新增】
         };
         return displayNames[type] || type;
     }
@@ -369,5 +395,68 @@ export class UIManager {
         if (errorPanel) {
             errorPanel.style.display = 'none';
         }
+    }
+    
+    /**
+     * 【新增】 顯示交流分析結果
+     */
+    displayACResults(results) {
+        this.clearSimulationResults();
+
+        let resultsPanel = document.getElementById('simulation-results');
+        if (!resultsPanel) {
+            resultsPanel = document.createElement('div');
+            resultsPanel.id = 'simulation-results';
+            resultsPanel.className = 'simulation-results-panel';
+            this.propertiesPanel.appendChild(resultsPanel);
+        }
+
+        if (!results || !results.ac) {
+            resultsPanel.innerHTML = '<h4>交流分析無結果</h4>';
+            return;
+        }
+
+        let resultsHTML = '<h4>交流分析結果</h4><div class="results-content">';
+        resultsHTML += '<p>由於無法在此環境繪製圖表，僅顯示部分數據點。詳細數據請查看瀏覽器控制台。</p>';
+        resultsHTML += '<table><tr><th>頻率 (Hz)</th><th>節點</th><th>幅度 (dB)</th><th>相位 (°)</th></tr>';
+
+        const frequencies = results.ac.frequency;
+        const nodes = Object.keys(results.ac).filter(k => k !== 'frequency');
+        
+        // 僅顯示幾個數據點作為範例
+        const displayIndices = [0, Math.floor(frequencies.length / 4), Math.floor(frequencies.length / 2), Math.floor(frequencies.length * 3 / 4), frequencies.length - 1];
+
+        nodes.forEach(node => {
+            const magnitudes = results.ac[node].map(c => 20 * Math.log10(Math.sqrt(c.real * c.real + c.imag * c.imag)));
+            const phases = results.ac[node].map(c => (180 / Math.PI) * Math.atan2(c.imag, c.real));
+
+            displayIndices.forEach(i => {
+                if(frequencies[i]) {
+                    resultsHTML += `<tr>
+                        <td>${frequencies[i].toExponential(2)}</td>
+                        <td>${node.replace('V_', '')}</td>
+                        <td>${magnitudes[i].toFixed(2)}</td>
+                        <td>${phases[i].toFixed(2)}</td>
+                    </tr>`;
+                }
+            });
+        });
+
+        resultsHTML += '</table></div>';
+        resultsPanel.innerHTML = resultsHTML;
+
+        // 在控制台輸出完整數據，方便複製
+        console.log("--- AC Analysis Full Data ---");
+        console.log("Frequency (Hz), " + nodes.map(n => `${n.replace('V_', '')}_Mag(dB), ${n.replace('V_', '')}_Phase(deg)`).join(", "));
+        frequencies.forEach((freq, i) => {
+            const row = [freq.toExponential(4)];
+            nodes.forEach(node => {
+                const c = results.ac[node][i];
+                const mag = 20 * Math.log10(Math.sqrt(c.real * c.real + c.imag * c.imag));
+                const phase = (180 / Math.PI) * Math.atan2(c.imag, c.real);
+                row.push(mag.toFixed(4), phase.toFixed(4));
+            });
+            console.log(row.join(", "));
+        });
     }
 }

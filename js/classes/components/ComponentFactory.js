@@ -6,6 +6,7 @@ import { Resistor } from './Resistor.js';
 import { Capacitor } from './Capacitor.js';
 import { Inductor } from './Inductor.js';
 import { DCSource } from './DCSource.js';
+import { ACSource } from './ACSource.js'; // 【新增】
 
 export class ComponentFactory {
     constructor(simulator) {
@@ -27,6 +28,8 @@ export class ComponentFactory {
                 return new Inductor(id, x, y);
             case 'DC_Source':
                 return new DCSource(id, x, y);
+            case 'AC_Source': // 【新增】
+                return new ACSource(id, x, y); // 【新增】
             default:
                 throw new Error(`Unknown component type: ${type}`);
         }
@@ -46,6 +49,8 @@ export class ComponentFactory {
                 return new Inductor('temp', 0, 0).getSVG();
             case 'DC_Source':
                 return new DCSource('temp', 0, 0).getSVG();
+            case 'AC_Source': // 【新增】
+                return new ACSource('temp', 0, 0).getSVG(); // 【新增】
             default:
                 throw new Error(`Unknown component type: ${type}`);
         }
