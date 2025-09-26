@@ -1,0 +1,97 @@
+/**
+ * 電路模擬器測試用例
+ * 用於驗證物件導向重構後的功能
+ */
+
+// 等待DOM載入完成
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, starting tests...');
+    
+    // 等待一下讓主程式初始化
+    setTimeout(runTests, 1000);
+});
+
+function runTests() {
+    console.log('=== Circuit Simulator OOP Tests ===');
+    
+    if (typeof window.circuitSimulator === 'undefined') {
+        console.error('Circuit simulator not found!');
+        return;
+    }
+    
+    const sim = window.circuitSimulator;
+    
+    // 測試 1: 基本初始化
+    console.log('Test 1: Basic initialization');
+    console.log('✓ Simulator initialized:', !!sim);
+    console.log('✓ Canvas manager:', !!sim.canvasManager);
+    console.log('✓ Event manager:', !!sim.eventManager);
+    console.log('✓ UI manager:', !!sim.uiManager);
+    console.log('✓ Wire manager:', !!sim.wireManager);
+    console.log('✓ Simulation engine:', !!sim.simulationEngine);
+    console.log('✓ Component factory:', !!sim.componentFactory);
+    
+    // 測試 2: 元件創建
+    console.log('\nTest 2: Component creation');
+    try {
+        const resistor = sim.addComponent('Resistor', 100, 100);
+        console.log('✓ Resistor created:', resistor.id, resistor.type);
+        
+        const capacitor = sim.addComponent('Capacitor', 200, 100);
+        console.log('✓ Capacitor created:', capacitor.id, capacitor.type);
+        
+        const dcSource = sim.addComponent('DC_Source', 150, 200);
+        console.log('✓ DC Source created:', dcSource.id, dcSource.type);
+        
+        console.log('✓ Total components:', sim.components.length);
+        
+    } catch (error) {
+        console.error('✗ Component creation failed:', error);
+    }
+    
+    // 測試 3: 渲染
+    console.log('\nTest 3: Rendering');
+    try {
+        sim.render();
+        console.log('✓ Render completed without errors');
+        
+        // 檢查 SVG 元素
+        const svgComponents = sim.svg.querySelectorAll('.component');
+        console.log('✓ SVG components rendered:', svgComponents.length);
+        
+    } catch (error) {
+        console.error('✗ Rendering failed:', error);
+    }
+    
+    // 測試 4: 模式切換
+    console.log('\nTest 4: Mode switching');
+    try {
+        sim.setMode('PLACING', { placingType: 'Resistor' });
+        console.log('✓ Switched to PLACING mode');
+        
+        sim.setMode('WIRING');
+        console.log('✓ Switched to WIRING mode');
+        
+        sim.setMode('SELECT');
+        console.log('✓ Switched to SELECT mode');
+        
+    } catch (error) {
+        console.error('✗ Mode switching failed:', error);
+    }
+    
+    // 測試 5: 網表生成（如果有元件）
+    console.log('\nTest 5: Netlist generation');
+    try {
+        if (sim.components.length > 0) {
+            const netlist = sim.simulationEngine.generateNetlist();
+            console.log('✓ Netlist generated');
+            console.log('Netlist preview (first 200 chars):', netlist.substring(0, 200) + '...');
+        } else {
+            console.log('⚠ No components to generate netlist');
+        }
+    } catch (error) {
+        console.error('✗ Netlist generation failed:', error);
+    }
+    
+    console.log('\n=== Tests completed ===');
+}
